@@ -1,0 +1,56 @@
+import { createClient } from "@supabase/supabase-js";
+export const localDemo =
+  import.meta.env.DEV && import.meta.env.VITE_LOCAL_DEMO === "true";
+const config = import.meta.env;
+export const configured =
+  localDemo ||
+  !!(
+    config.VITE_SUPABASE_URL &&
+    config.VITE_SUPABASE_PUBLISHABLE_KEY &&
+    config.VITE_API_BASE_URL &&
+    !config.VITE_SUPABASE_URL.includes("YOUR_")
+  );
+export const auth =
+  configured && !localDemo
+    ? createClient(
+        config.VITE_SUPABASE_URL,
+        config.VITE_SUPABASE_PUBLISHABLE_KEY,
+      )
+    : null;
+export class Client {
+  readonly controller = new AbortController();
+  constructor(public userID: string) {}
+  async token() {
+    if (localDemo) return `demo:${this.userID}`;
+    const session = await auth!.auth.getSession();
+    if (!session.data.session) throw new Error("请重新登录");
+    return session.data.session.access_token;
+  }
+  async request<T = any>(
+    path: string,
+    body?: unknown,
+    method = body ? "POST" : "GET",
+    key?: string,
+  ): Promise<T> {
+    const r = await fetch(
+      `${localDemo ? "http://127.0.0.1:8788" : config.VITE_API_BASE_URL.replace(/\/$/, "")}${path}`,
+      {
+        method,
+        headers: {
+          Authorization: `Bearer ${await this.token()}`,
+          ...(body ? { "Content-Type": "application/json" } : {}),
+          ...(key ? { "Idempotency-Key": key } : {}),
+        },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: this.controller.signal,
+        cache: "no-store",
+      },
+    );
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error?.message || "连接失败，请稍后重试");
+    return data;
+  }
+  stop() {
+    this.controller.abort();
+  }
+}

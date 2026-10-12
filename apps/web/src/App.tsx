@@ -1,0 +1,1560 @@
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import {
+  Heart,
+  Images,
+  Plus,
+  UserRound,
+  LogOut,
+  ArrowUpRight,
+  ArrowLeft,
+  Download,
+  Trash2,
+  MapPin,
+  CalendarDays,
+  LockKeyhole,
+  CloudUpload,
+  FolderOpen,
+  Check,
+  RefreshCw,
+  X,
+  Camera,
+  ChevronRight,
+  Leaf,
+  WifiOff,
+} from "lucide-react";
+import {
+  type Photo,
+  type UploadSession,
+  formatBytes,
+} from "../../../packages/shared/src/index";
+import { auth, Client, configured, localDemo } from "./client";
+import {
+  addDerivatives,
+  addLiveVideo,
+  cancel,
+  journal,
+  resume,
+  uploadPhoto,
+} from "./uploads";
+const demoIDs = [
+  "11111111-1111-4111-8111-111111111111",
+  "22222222-2222-4222-8222-222222222222",
+  "33333333-3333-4333-8333-333333333333",
+  "44444444-4444-4444-8444-444444444444",
+];
+const appName = import.meta.env.VITE_APP_NAME || "拾光相册";
+const dateText = (p: Photo) =>
+  p.captured_local
+    ? p.captured_local.slice(0, 10).replaceAll("-", ".")
+    : `上传于 ${new Date(p.uploaded_at).toLocaleDateString("zh-CN")}`;
+const errorText = (e: unknown) =>
+  e instanceof Error ? e.message : "操作失败，请稍后重试";
+function Logo() {
+  return (
+    <span className="logo-symbol">
+      <Camera size={23} />
+      <span />
+    </span>
+  );
+}
+function Login({ onLocal }: { onLocal: (id: string) => void }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const r = await auth!.auth.signInWithPassword({ email, password });
+      if (r.error) throw new Error("登录失败，请检查邮箱和密码或稍后重试");
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <main className="login-page">
+      <section className="login-story">
+        <div className="brand">
+          <Logo />
+          {appName}
+        </div>
+        <div className="story-art">
+          <div className="art-sun" />
+          <div className="art-mountain back" />
+          <div className="art-mountain front" />
+          <div className="art-caption">THE LITTLE THINGS, KEPT FOREVER.</div>
+        </div>
+        <p className="eyebrow">FOR YOU & YOUR EVERYDAY</p>
+        <h1>
+          平常的日子，
+          <br />
+          值得好好珍藏。
+        </h1>
+        <p>
+          留下喜欢的瞬间。
+          <br />
+          让回忆，在这里慢慢生长。
+        </p>
+      </section>
+      <section className="login-form">
+        <span className="small-lock">
+          <LockKeyhole size={16} /> 私密的个人空间
+        </span>
+        <h2>欢迎回来</h2>
+        <p>登录，翻开属于你的相册。</p>
+        {!configured ? (
+          <div className="notice">
+            <strong>相册尚未配置</strong>
+            <p>
+              管理员完成服务配置后即可登录。开发者可按项目说明启动独立本地演示。
+            </p>
+          </div>
+        ) : localDemo ? (
+          <div className="demo-login">
+            <div className="notice">
+              本地演示 · 合成图片 · 数据在服务重启后重置
+            </div>
+            {demoIDs.map((id, i) => (
+              <button
+                key={id}
+                className="demo-person"
+                onClick={() => onLocal(id)}
+              >
+                <span className="avatar">{["一", "二", "三", "四"][i]}</span>
+                <span>
+                  {i === 0
+                    ? "我的示例相册"
+                    : `家人${["", "二", "三", "四"][i]}的示例账号`}
+                </span>
+                <ChevronRight size={18} />
+              </button>
+            ))}
+          </div>
+        ) : (
+          <form onSubmit={submit}>
+            <label>
+              邮箱
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="username"
+                required
+              />
+            </label>
+            <label>
+              密码
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                required
+              />
+            </label>
+            {error && (
+              <p className="error" role="alert">
+                {error}
+              </p>
+            )}
+            <button className="primary full" disabled={busy}>
+              {busy ? "正在登录…" : "进入我的相册"}
+              <ArrowUpRight size={18} />
+            </button>
+            <p className="fineprint">需要重置密码？请联系相册管理员。</p>
+          </form>
+        )}
+        <p className="login-footer">
+          <Leaf size={14} /> 不着急，回忆都在这里。
+        </p>
+      </section>
+    </main>
+  );
+}
+function useRoute() {
+  const [route, setRoute] = useState(location.hash.slice(1) || "/featured");
+  useEffect(() => {
+    const change = () => setRoute(location.hash.slice(1) || "/featured");
+    window.addEventListener("hashchange", change);
+    return () => window.removeEventListener("hashchange", change);
+  }, []);
+  return route;
+}
+export default function App() {
+  const [userID, setUserID] = useState<string | null>(null);
+  const [restoring, setRestoring] = useState(true);
+  const [offline, setOffline] = useState(!navigator.onLine);
+  useEffect(() => {
+    const update = () => setOffline(!navigator.onLine);
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    if (localDemo) {
+      setUserID(sessionStorage.getItem("album-demo-user"));
+      setRestoring(false);
+    } else if (auth) {
+      auth.auth.getSession().then((r) => {
+        setUserID(r.data.session?.user.id || null);
+        setRestoring(false);
+      });
+      const sub = auth.auth.onAuthStateChange((_event, session) => {
+        setUserID(session?.user.id || null);
+        setRestoring(false);
+      });
+      return () => {
+        sub.data.subscription.unsubscribe();
+        window.removeEventListener("online", update);
+        window.removeEventListener("offline", update);
+      };
+    } else setRestoring(false);
+    return () => {
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
+    };
+  }, []);
+  const loginLocal = (id: string) => {
+    sessionStorage.setItem("album-demo-user", id);
+    setUserID(id);
+    location.hash = "/featured";
+  };
+  const logout = async () => {
+    setUserID(null);
+    sessionStorage.removeItem("album-demo-user");
+    for (let i = sessionStorage.length - 1; i >= 0; i--) {
+      const key = sessionStorage.key(i);
+      if (key?.startsWith("album-pending:")) sessionStorage.removeItem(key);
+    }
+    if (auth) await auth.auth.signOut({ scope: "local" });
+    location.hash = "/featured";
+  };
+  return (
+    <>
+      {offline && (
+        <div className="offline-banner">
+          <WifiOff size={16} /> 当前离线，请联网后查看或上传照片。
+        </div>
+      )}
+      {localDemo && (
+        <div className="demo-banner">本地演示 · 合成图片 · 未连接云服务</div>
+      )}
+      {restoring ? (
+        <div className="boot">
+          <Logo />
+          <p>正在打开相册…</p>
+        </div>
+      ) : userID ? (
+        <Album key={userID} userID={userID} logout={logout} />
+      ) : (
+        <Login onLocal={loginLocal} />
+      )}
+    </>
+  );
+}
+function Album({
+  userID,
+  logout,
+}: {
+  userID: string;
+  logout: () => Promise<void>;
+}) {
+  const client = useMemo(() => new Client(userID), [userID]);
+  const route = useRoute();
+  const [me, setMe] = useState<any>(null);
+  const [memberError, setMemberError] = useState("");
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    let active = true;
+    client
+      .request("/v1/me")
+      .then((x) => {
+        if (active) setMe(x);
+      })
+      .catch((e) => {
+        if (active) setMemberError(errorText(e));
+      });
+    return () => {
+      active = false;
+      client.stop();
+    };
+  }, [client]);
+  const refresh = () => {
+    setRevision((n) => n + 1);
+    client
+      .request("/v1/me")
+      .then(setMe)
+      .catch(() => {});
+  };
+  const exit = async () => {
+    client.stop();
+    await logout();
+  };
+  const tab = route.startsWith("/all")
+    ? "all"
+    : route.startsWith("/upload")
+      ? "upload"
+      : route.startsWith("/me")
+        ? "me"
+        : "featured";
+  if (memberError)
+    return (
+      <div className="access-error">
+        <Logo />
+        <h2>暂时无法打开相册</h2>
+        <p role="alert">{memberError}</p>
+        <button className="primary" onClick={exit}>
+          返回登录
+        </button>
+        <button className="quiet" onClick={() => location.reload()}>
+          重新连接
+        </button>
+      </div>
+    );
+  if (!me)
+    return (
+      <div className="boot">
+        <Logo />
+        <p>正在加载个人空间…</p>
+      </div>
+    );
+  const nav = [
+    { key: "featured", icon: Heart, name: "精选时光" },
+    { key: "all", icon: Images, name: "全部照片" },
+    { key: "upload", icon: Plus, name: "添加照片" },
+    { key: "me", icon: UserRound, name: "我的" },
+  ];
+  return (
+    <div className="album-layout">
+      <aside className="sidebar">
+        <a className="brand" href="#/featured">
+          <Logo />
+          {appName}
+        </a>
+        <p className="sidebar-caption">属于你的日常珍藏</p>
+        <nav>
+          {nav.map((n) => (
+            <a
+              key={n.key}
+              href={`#/${n.key}`}
+              className={tab === n.key ? "active" : ""}
+            >
+              <n.icon size={20} />
+              {n.name}
+              {n.key === "featured" && <span className="nav-dot" />}
+            </a>
+          ))}
+        </nav>
+        <div className="sidebar-bottom">
+          <div className="private-label">
+            <LockKeyhole size={15} /> 仅自己可见
+          </div>
+          <button
+            className="profile-pill"
+            onClick={() => {
+              location.hash = "/me";
+            }}
+          >
+            <span className="avatar">{me.display_name.slice(0, 1)}</span>
+            <span>
+              {me.display_name}
+              <small>我的私密相册</small>
+            </span>
+            <ChevronRight size={17} />
+          </button>
+        </div>
+      </aside>
+      <div className="content">
+        <header className="topbar">
+          <div className="mobile-brand">
+            <Logo />
+            {appName}
+          </div>
+          <span className="desktop-greeting">欢迎回来，{me.display_name}</span>
+          <div className="topbar-right">
+            <span className="small-lock">
+              <LockKeyhole size={14} /> 私密相册
+            </span>
+            <a className="add-button" href="#/upload">
+              <Plus size={17} />
+              <span>添加照片</span>
+            </a>
+          </div>
+        </header>
+        <main className="main-content">
+          {tab === "featured" || tab === "all" ? (
+            <Gallery
+              key={`${tab}-${revision}`}
+              client={client}
+              featured={tab === "featured"}
+            />
+          ) : null}
+          <div hidden={tab !== "upload"}>
+            <Upload client={client} onChange={refresh} />
+          </div>
+          {tab === "me" && <MyPage me={me} logout={exit} />}
+        </main>
+        <footer className="page-footer">
+          把平常的日子，好好珍藏。<span>PRIVATE FAMILY ALBUM</span>
+        </footer>
+      </div>
+      <nav className="bottom-nav">
+        {nav.map((n) => (
+          <a
+            key={n.key}
+            href={`#/${n.key}`}
+            className={tab === n.key ? "active" : ""}
+          >
+            <n.icon size={21} />
+            <span>
+              {n.key === "featured"
+                ? "精选"
+                : n.key === "all"
+                  ? "全部"
+                  : n.key === "upload"
+                    ? "上传"
+                    : "我的"}
+            </span>
+          </a>
+        ))}
+      </nav>
+      {route.startsWith("/photo/") && (
+        <Detail
+          key={route}
+          client={client}
+          photoID={route.split("/")[2]}
+          onChange={refresh}
+        />
+      )}
+    </div>
+  );
+}
+function Gallery({ client, featured }: { client: Client; featured: boolean }) {
+  const [photos, setPhotos] = useState<Photo[]>([]);
+  const [urls, setURLs] = useState<Record<string, string>>({});
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [busy, setBusy] = useState(true);
+  const [error, setError] = useState("");
+  const [filter, setFilter] = useState("");
+  const active = useRef(true);
+  async function load(next?: string) {
+    setBusy(true);
+    setError("");
+    try {
+      const r = await client.request<{
+        photos: Photo[];
+        next_cursor: string | null;
+      }>(
+        `/v1/photos?featured=${featured}${next ? `&cursor=${encodeURIComponent(next)}` : ""}`,
+      );
+      if (!active.current) return;
+      setPhotos((p) =>
+        next
+          ? [...p, ...r.photos.filter((x) => !p.some((y) => y.id === x.id))]
+          : r.photos,
+      );
+      setCursor(r.next_cursor);
+      await authorize(r.photos);
+    } catch (e) {
+      if (active.current) setError(errorText(e));
+    } finally {
+      if (active.current) setBusy(false);
+    }
+  }
+  async function authorize(items: Photo[]) {
+    const ids = items
+      .map(
+        (p) =>
+          p.assets.find((a) => a.role === "thumbnail") ||
+          p.assets.find((a) => a.role === "preview"),
+      )
+      .filter(Boolean)
+      .map((a) => a!.id);
+    if (!ids.length) return;
+    try {
+      const r = await client.request<{ urls: { id: string; url: string }[] }>(
+        "/v1/assets/read-urls",
+        { ids },
+      );
+      if (active.current)
+        setURLs((old) => ({
+          ...old,
+          ...Object.fromEntries(r.urls.map((a) => [a.id, a.url])),
+        }));
+    } catch (e) {
+      if (active.current) setError(errorText(e));
+    }
+  }
+  useEffect(() => {
+    active.current = true;
+    load();
+    return () => {
+      active.current = false;
+    };
+  }, []);
+  const visible = filter
+    ? photos.filter((p) =>
+        `${p.location_label || ""} ${p.captured_local || ""}`.includes(filter),
+      )
+    : photos;
+  const groups = featured
+    ? [["精选", visible] as const]
+    : Object.entries(
+        visible.reduce<Record<string, Photo[]>>((g, p) => {
+          const month = p.sort_date.slice(0, 7);
+          (g[month] ||= []).push(p);
+          return g;
+        }, {}),
+      );
+  return (
+    <section>
+      <div className="gallery-heading">
+        <div>
+          <p className="eyebrow">
+            {featured
+              ? "A COLLECTION OF LITTLE JOYS"
+              : "EVERY MOMENT HAS A PLACE"}
+          </p>
+          <h1>
+            {featured ? "把喜欢的时光，留下来。" : "日子，一页一页。"}
+            <span className="title-flower">✳</span>
+          </h1>
+          <p>
+            {featured
+              ? "不用每一张都完美，喜欢就值得珍藏。"
+              : "按时间翻阅，找到那些平常却珍贵的瞬间。"}
+          </p>
+        </div>
+        <div className="heading-stamp">
+          <Heart size={23} />
+          <span>日常 · 珍藏</span>
+        </div>
+      </div>
+      <div className="gallery-toolbar">
+        <div className="view-label">
+          {featured ? (
+            <>
+              <Heart size={17} fill="currentColor" /> 我的精选
+            </>
+          ) : (
+            <>
+              <Images size={18} /> 全部照片
+            </>
+          )}
+          <span>
+            {photos.length}
+            {cursor ? "+" : ""} 张
+          </span>
+        </div>
+        {!featured && (
+          <input
+            className="search"
+            aria-label="筛选已加载照片"
+            placeholder="筛选日期或地点"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+        )}
+        <span className="sort-label">
+          {featured ? "每一个瞬间，都有意义" : "拍摄日期 ↓"}
+        </span>
+      </div>
+      {error && (
+        <div className="notice error" role="alert">
+          {error}
+          <button className="quiet" onClick={() => load()}>
+            重新连接
+          </button>
+        </div>
+      )}
+      {!busy && !photos.length && !error && (
+        <div className="empty-state">
+          <div className="empty-art">
+            <Images size={42} />
+            <Heart size={20} />
+          </div>
+          <h2>
+            {featured ? "喜欢的瞬间，留个位置。" : "第一张回忆，从这里开始。"}
+          </h2>
+          <p>
+            {featured
+              ? "上传后标记精选，或从全部照片中挑选。"
+              : "把照片的原件放进你的私密相册。"}
+          </p>
+          <a className="primary" href={featured ? "#/all" : "#/upload"}>
+            {featured ? "去全部照片挑选" : "添加照片"}
+            <ArrowUpRight size={18} />
+          </a>
+        </div>
+      )}
+      {groups.map(([month, items]) => (
+        <section className="photo-group" key={month}>
+          {!featured && (
+            <h2 className="month-heading">
+              {month.replace("-", " 年 ")} 月<span>{items.length} 张</span>
+            </h2>
+          )}
+          <div className="photo-grid">
+            {items.map((p, index) => {
+              const asset =
+                p.assets.find((a) => a.role === "thumbnail") ||
+                p.assets.find((a) => a.role === "preview");
+              return (
+                <a
+                  className="photo-card"
+                  key={p.id}
+                  href={`#/photo/${p.id}`}
+                  aria-label={`打开照片 ${p.location_label || dateText(p)}`}
+                >
+                  <div className={`photo-frame frame-${index % 4}`}>
+                    {asset && urls[asset.id] ? (
+                      <PrivateImage
+                        url={urls[asset.id]}
+                        alt={p.location_label || "相册照片"}
+                        eager={index < 4}
+                        retry={() => authorize([p])}
+                      />
+                    ) : (
+                      <div className="pending-image">
+                        <Images size={30} />
+                        <span>
+                          {p.original_status === "saved"
+                            ? "原件已保存 · 待补浏览图片"
+                            : p.original_status === "failed"
+                              ? "上传未完成"
+                              : "正在保存原件"}
+                        </span>
+                      </div>
+                    )}
+                    {p.is_featured && (
+                      <span className="featured-badge">
+                        <Heart size={14} fill="currentColor" />
+                      </span>
+                    )}
+                    {p.live_status === "paired_unverified" && (
+                      <span className="live-badge">配套视频已保存</span>
+                    )}
+                  </div>
+                  <div className="photo-caption">
+                    <span>{p.location_label || "一个日常瞬间"}</span>
+                    <ArrowUpRight size={16} />
+                    <small>{dateText(p)}</small>
+                  </div>
+                </a>
+              );
+            })}
+          </div>
+        </section>
+      ))}
+      {busy && (
+        <div className="loading">
+          <RefreshCw size={18} className="spin" /> 正在翻开回忆…
+        </div>
+      )}
+      {cursor && !busy && (
+        <button className="load-more" onClick={() => load(cursor)}>
+          继续翻阅 <ChevronRight size={16} />
+        </button>
+      )}
+      <div className="gallery-end">
+        <span />
+        <Leaf size={17} />
+        <span />
+        <p>一些小事，记得就是幸福。</p>
+      </div>
+    </section>
+  );
+}
+function PrivateImage({
+  url,
+  alt,
+  eager = false,
+  retry,
+}: {
+  url: string;
+  alt: string;
+  eager?: boolean;
+  retry: () => Promise<void>;
+}) {
+  const [attempt, setAttempt] = useState(0);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    setFailed(false);
+  }, [url]);
+  return failed ? (
+    <button
+      className="image-retry"
+      onClick={() => {
+        setAttempt(0);
+        setFailed(false);
+        retry();
+      }}
+    >
+      <RefreshCw size={21} />
+      点击重新加载图片
+    </button>
+  ) : (
+    <img
+      src={url}
+      alt={alt}
+      loading={eager ? "eager" : "lazy"}
+      referrerPolicy="no-referrer"
+      onError={() => {
+        if (attempt < 1) {
+          setAttempt((n) => n + 1);
+          retry();
+        } else setFailed(true);
+      }}
+    />
+  );
+}
+function Detail({
+  client,
+  photoID,
+  onChange,
+}: {
+  client: Client;
+  photoID: string;
+  onChange: () => void;
+}) {
+  const [photo, setPhoto] = useState<Photo | null>(null);
+  const [url, setURL] = useState("");
+  const [error, setError] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [date, setDate] = useState("");
+  const [place, setPlace] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [zoom, setZoom] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [notice, setNotice] = useState("");
+  const input = useRef<HTMLInputElement>(null);
+  const videoInput = useRef<HTMLInputElement>(null);
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  function close() {
+    location.hash = "/all";
+  }
+  async function load() {
+    const p = await client.request<Photo>(`/v1/photos/${photoID}`);
+    setPhoto(p);
+    setDate(p.captured_local?.slice(0, 16) || "");
+    setPlace(p.location_label || "");
+    const a = p.assets.find((x) => x.role === "preview");
+    if (a) {
+      const r = await client.request("/v1/assets/read-urls", { ids: [a.id] });
+      setURL(r.urls[0].url);
+    }
+  }
+  useEffect(() => {
+    let live = true;
+    client
+      .request<Photo>(`/v1/photos/${photoID}`)
+      .then(async (p) => {
+        if (!live) return;
+        setPhoto(p);
+        setDate(p.captured_local?.slice(0, 16) || "");
+        setPlace(p.location_label || "");
+        const a = p.assets.find((x) => x.role === "preview");
+        if (a) {
+          const r = await client.request("/v1/assets/read-urls", {
+            ids: [a.id],
+          });
+          if (live) setURL(r.urls[0].url);
+        }
+      })
+      .catch((e) => {
+        if (live) setError(errorText(e));
+      });
+    const escape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    document.addEventListener("keydown", escape);
+    return () => {
+      live = false;
+      document.removeEventListener("keydown", escape);
+    };
+  }, []);
+  async function action(fn: () => Promise<void>) {
+    setBusy(true);
+    setError("");
+    try {
+      await fn();
+    } catch (e) {
+      if (!client.controller.signal.aborted) setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function edit(e: FormEvent) {
+    e.preventDefault();
+    await action(async () => {
+      setPhoto(
+        await client.request(
+          `/v1/photos/${photoID}`,
+          { captured_local: date || null, location_label: place || null },
+          "PATCH",
+        ),
+      );
+      setEditing(false);
+      onChange();
+    });
+  }
+  return (
+    <div className="modal-backdrop">
+      <section
+        className="detail-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="照片详情"
+      >
+        <button
+          className="modal-close icon-button"
+          aria-label="关闭照片"
+          onClick={close}
+        >
+          <X size={23} />
+        </button>
+        <div
+          className={`detail-image ${zoom ? "zoom" : ""}`}
+          onClick={() => setZoom((x) => !x)}
+        >
+          {url ? (
+            <PrivateImage
+              url={url}
+              alt={photo?.location_label || "照片预览"}
+              eager
+              retry={load}
+            />
+          ) : (
+            <div className="pending-image">
+              <Images size={45} />
+              <p>浏览图片尚未准备好</p>
+              {photo?.original_status === "saved" && (
+                <span>原件已安全保存，可下载或补传预览。</span>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="detail-info">
+          <p className="eyebrow">A MOMENT TO KEEP</p>
+          <h2>{photo?.location_label || "一个值得记住的瞬间"}</h2>
+          {photo && (
+            <>
+              <div className="detail-meta">
+                <p>
+                  <CalendarDays size={17} />
+                  {photo.captured_local
+                    ? photo.captured_local.replace("T", " ").slice(0, 16)
+                    : "拍摄时间未记录"}
+                </p>
+                <p>
+                  <MapPin size={17} />
+                  {photo.location_label ||
+                    (photo.latitude != null
+                      ? `${photo.latitude.toFixed(5)}, ${photo.longitude!.toFixed(5)}`
+                      : "地点未记录")}
+                </p>
+              </div>
+              <p className="private-note">
+                <LockKeyhole size={14} /> 这张照片仅你自己可见
+              </p>
+              <p className="live-note">
+                {photo.live_status === "paired_unverified"
+                  ? "配套视频已保存 · 手动组合，尚未验证Live配对"
+                  : "仅静态部分"}
+              </p>
+              {editing ? (
+                <form className="edit-form" onSubmit={edit}>
+                  <label>
+                    拍摄时间（当地时间）
+                    <input
+                      type="datetime-local"
+                      value={date}
+                      onChange={(e) => setDate(e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    地点
+                    <input
+                      value={place}
+                      maxLength={120}
+                      onChange={(e) => setPlace(e.target.value)}
+                      placeholder="例如：海边的一次散步"
+                    />
+                  </label>
+                  <button className="primary" disabled={busy}>
+                    保存信息
+                  </button>
+                  <button
+                    type="button"
+                    className="quiet"
+                    onClick={() => setEditing(false)}
+                  >
+                    取消
+                  </button>
+                </form>
+              ) : (
+                <div className="detail-actions">
+                  <button
+                    className={`feature-toggle ${photo.is_featured ? "selected" : ""}`}
+                    disabled={busy}
+                    onClick={() =>
+                      action(async () => {
+                        setPhoto(
+                          await client.request(
+                            `/v1/photos/${photoID}`,
+                            { is_featured: !photo.is_featured },
+                            "PATCH",
+                          ),
+                        );
+                        onChange();
+                      })
+                    }
+                  >
+                    <Heart
+                      size={19}
+                      fill={photo.is_featured ? "currentColor" : "none"}
+                    />
+                    {photo.is_featured ? "已放入精选" : "放入精选"}
+                  </button>
+                  <button
+                    className="secondary"
+                    onClick={() => setEditing(true)}
+                  >
+                    编辑日期与地点
+                  </button>
+                  {photo.assets
+                    .filter(
+                      (a) =>
+                        a.role === "original_image" || a.role === "live_video",
+                    )
+                    .map((a) => (
+                      <button
+                        className="secondary"
+                        key={a.id}
+                        disabled={busy}
+                        onClick={() =>
+                          action(async () => {
+                            const r = await client.request(
+                              `/v1/photos/${photoID}/original-download`,
+                              { role: a.role },
+                            );
+                            const link = document.createElement("a");
+                            link.href = r.url;
+                            link.download = r.filename;
+                            link.rel = "noreferrer";
+                            document.body.append(link);
+                            link.click();
+                            link.remove();
+                            setNotice(
+                              "已打开原件下载。iPhone 可在下载列表或“文件”App 中查找。",
+                            );
+                          })
+                        }
+                      >
+                        <Download size={17} />
+                        {a.role === "live_video" ? "下载配套视频" : "下载原件"}
+                        <small>{formatBytes(Number(a.size_bytes))}</small>
+                      </button>
+                    ))}
+                  {
+                    <>
+                      <button
+                        className="secondary"
+                        onClick={() => input.current?.click()}
+                      >
+                        <RefreshCw size={17} />
+                        重新选择原件或JPEG，生成浏览图片
+                      </button>
+                      <input
+                        ref={input}
+                        type="file"
+                        hidden
+                        accept="image/*,.heic,.heif"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f)
+                            action(async () => {
+                              await addDerivatives(
+                                client,
+                                photoID,
+                                f,
+                                crypto.randomUUID(),
+                                () => {},
+                              );
+                              await load();
+                              onChange();
+                            });
+                          e.target.value = "";
+                        }}
+                      />
+                    </>
+                  }
+                  {!photo.assets.some((a) => a.role === "live_video") && (
+                    <>
+                      <button
+                        className="secondary"
+                        onClick={() => videoInput.current?.click()}
+                      >
+                        添加配套视频
+                      </button>
+                      <input
+                        ref={videoInput}
+                        type="file"
+                        hidden
+                        accept=".mov,.mp4"
+                        onChange={(e) => {
+                          setVideoFile(e.target.files?.[0] || null);
+                          e.target.value = "";
+                        }}
+                      />
+                      {videoFile && (
+                        <div className="notice">
+                          <p>
+                            将 {videoFile.name}{" "}
+                            与当前静态图手动组合，保存后标记“尚未验证配对”。
+                          </p>
+                          <button
+                            disabled={busy}
+                            className="quiet"
+                            onClick={() =>
+                              action(async () => {
+                                await addLiveVideo(client, photoID, videoFile);
+                                setVideoFile(null);
+                                await load();
+                                onChange();
+                              })
+                            }
+                          >
+                            确认组合并保存
+                          </button>
+                          <button
+                            className="quiet"
+                            onClick={() => setVideoFile(null)}
+                          >
+                            取消
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                  <div className="danger-area">
+                    {deleteConfirm ? (
+                      <>
+                        <p>
+                          永久删除这张照片及所有素材？没有回收站，已发出的授权到期后会清理文件。
+                        </p>
+                        <button
+                          className="danger"
+                          disabled={busy}
+                          onClick={() =>
+                            action(async () => {
+                              await client.request(
+                                `/v1/photos/${photoID}`,
+                                undefined,
+                                "DELETE",
+                              );
+                              onChange();
+                              close();
+                            })
+                          }
+                        >
+                          确认永久删除
+                        </button>
+                        <button
+                          className="quiet"
+                          onClick={() => setDeleteConfirm(false)}
+                        >
+                          保留照片
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        className="delete-button"
+                        onClick={() => setDeleteConfirm(true)}
+                      >
+                        <Trash2 size={16} />
+                        删除照片
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+          {error && (
+            <p className="error" role="alert">
+              {error}
+            </p>
+          )}
+          {notice && <p className="notice">{notice}</p>}
+        </div>
+      </section>
+    </div>
+  );
+}
+interface Job {
+  id: string;
+  name: string;
+  file?: File;
+  video?: File;
+  provenance: "browser_selected" | "file_imported";
+  featured: boolean;
+  state: "waiting" | "working" | "done" | "failed";
+  message: string;
+  progress: number;
+}
+function Upload({
+  client,
+  onChange,
+}: {
+  client: Client;
+  onChange: () => void;
+}) {
+  const [files, setFiles] = useState<File[]>([]);
+  const [provenance, setProvenance] =
+    useState<Job["provenance"]>("browser_selected");
+  const [pairs, setPairs] = useState<Record<string, string>>({});
+  const [featured, setFeatured] = useState(false);
+  const [concurrency, setConcurrency] = useState(2);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState<UploadSession[]>([]);
+  const [resumeBusy, setResumeBusy] = useState("");
+  const active = useRef(0);
+  const albumInput = useRef<HTMLInputElement>(null);
+  const importInput = useRef<HTMLInputElement>(null);
+  const resumeInput = useRef<HTMLInputElement>(null);
+  const [resumeSession, setResumeSession] = useState<UploadSession | null>(
+    null,
+  );
+  const pictures = files.filter((f) => !/\.(mov|mp4)$/i.test(f.name));
+  const videos = files.filter((f) => /\.(mov|mp4)$/i.test(f.name));
+  async function loadPending() {
+    const ids = journal(client);
+    const results = await Promise.all(
+      ids.map(async (id) => {
+        try {
+          return await client.request<UploadSession>(`/v1/uploads/${id}`);
+        } catch {
+          return null;
+        }
+      }),
+    );
+    if (!client.controller.signal.aborted)
+      setPending(
+        results.filter((s): s is UploadSession => !!s && s.state === "open"),
+      );
+  }
+  useEffect(() => {
+    loadPending();
+  }, []);
+  function choose(list: FileList | null, p: Job["provenance"]) {
+    if (!list) return;
+    if (list.length > 100) {
+      setError("每次最多选择100个文件");
+      return;
+    }
+    setFiles(Array.from(list));
+    setPairs({});
+    setProvenance(p);
+    setError("");
+  }
+  function enqueue() {
+    if (!pictures.length) {
+      setError("请至少选择一张静态原件，视频需与静态图一起导入");
+      return;
+    }
+    if (videos.some((v) => !pairs[v.name])) {
+      setError("请为每个视频选择配套静态图");
+      return;
+    }
+    if (new Set(Object.values(pairs)).size !== videos.length) {
+      setError("每张静态图只能组合一个配套视频");
+      return;
+    }
+    setJobs((old) => [
+      ...old,
+      ...pictures.map((file) => ({
+        id: crypto.randomUUID(),
+        name: file.name,
+        file,
+        video: videos.find((v) => pairs[v.name] === file.name),
+        provenance,
+        featured,
+        state: "waiting" as const,
+        message: "等待上传",
+        progress: 0,
+      })),
+    ]);
+    setFiles([]);
+    setPairs({});
+  }
+  useEffect(() => {
+    if (client.controller.signal.aborted) return;
+    const waiting = jobs
+      .filter((j) => j.state === "waiting")
+      .slice(0, Math.max(0, concurrency - active.current));
+    for (const job of waiting) {
+      active.current++;
+      setJobs((old) =>
+        old.map((j) => (j.id === job.id ? { ...j, state: "working" } : j)),
+      );
+      const update = (message: string, progress: number) => {
+        if (!client.controller.signal.aborted)
+          setJobs((old) =>
+            old.map((j) => (j.id === job.id ? { ...j, message, progress } : j)),
+          );
+      };
+      uploadPhoto(
+        client,
+        job.file!,
+        job.video,
+        job.provenance,
+        job.id,
+        job.featured,
+        update,
+      )
+        .then(() => {
+          if (!client.controller.signal.aborted) {
+            setJobs((old) =>
+              old.map((j) =>
+                j.id === job.id
+                  ? {
+                      ...j,
+                      state: "done",
+                      file: undefined,
+                      video: undefined,
+                      message: "原件与浏览图片已保存",
+                      progress: 1,
+                    }
+                  : j,
+              ),
+            );
+            onChange();
+          }
+        })
+        .catch((e) => {
+          if (!client.controller.signal.aborted)
+            setJobs((old) =>
+              old.map((j) =>
+                j.id === job.id
+                  ? { ...j, state: "failed", message: errorText(e) }
+                  : j,
+              ),
+            );
+        })
+        .finally(() => {
+          active.current--;
+          if (!client.controller.signal.aborted) {
+            setJobs((old) => [...old]);
+            loadPending();
+          }
+        });
+    }
+  }, [jobs, concurrency]);
+  async function restore(list: FileList | null) {
+    const s = resumeSession;
+    if (!list || !s) return;
+    setResumeBusy(s.id);
+    setError("");
+    try {
+      await resume(client, s, Array.from(list), () => {});
+      await loadPending();
+      onChange();
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setResumeBusy("");
+      setResumeSession(null);
+    }
+  }
+  return (
+    <section className="upload-page">
+      <p className="eyebrow">MAKE ROOM FOR NEW MEMORIES</p>
+      <h1>再收藏一点日常。</h1>
+      <p className="intro">保存照片原件，把喜欢的瞬间放进相册。</p>
+      <div className="upload-panel">
+        <div className="upload-icon">
+          <CloudUpload size={35} />
+        </div>
+        <h2>你的下一张回忆</h2>
+        <p>
+          支持 JPEG、PNG、HEIC / HEIF
+          <br />
+          原件完整保留，浏览图片单独生成。
+        </p>
+        <div className="upload-options">
+          <button
+            className="primary"
+            onClick={() => albumInput.current?.click()}
+          >
+            <Images size={18} />
+            从相册选择
+          </button>
+          <button
+            className="secondary"
+            onClick={() => importInput.current?.click()}
+          >
+            <FolderOpen size={18} />
+            导入原件文件 / Live素材
+          </button>
+        </div>
+        <input
+          ref={albumInput}
+          type="file"
+          accept="image/*"
+          multiple
+          hidden
+          onChange={(e) => {
+            choose(e.target.files, "browser_selected");
+            e.target.value = "";
+          }}
+        />
+        <input
+          ref={importInput}
+          type="file"
+          accept=".jpg,.jpeg,.png,.heic,.heif,.hif,.mov,.mp4"
+          multiple
+          hidden
+          onChange={(e) => {
+            choose(e.target.files, "file_imported");
+            e.target.value = "";
+          }}
+        />
+        <p className="upload-hint">
+          相册选择可能转换格式；严格保留源文件请使用“导入原件文件”。
+          <br />
+          Live素材需静态图和配套视频一起导入；当前只保存，不播放。
+        </p>
+      </div>
+      {files.length > 0 && (
+        <div className="selection-panel">
+          <h3>
+            已选择 {pictures.length} 张照片
+            {videos.length ? ` + ${videos.length} 个配套视频` : ""}
+          </h3>
+          <div className="selected-files">
+            {pictures.map((f, i) => (
+              <div key={i}>
+                <Images size={17} />
+                <span>{f.name}</span>
+                <small>{formatBytes(f.size)}</small>
+              </div>
+            ))}
+          </div>
+          {videos.map((v, i) => (
+            <label key={i} className="pairing">
+              {v.name}
+              <select
+                aria-label={`${v.name} 的配套静态图`}
+                value={pairs[v.name] || ""}
+                onChange={(e) =>
+                  setPairs({ ...pairs, [v.name]: e.target.value })
+                }
+              >
+                <option value="">选择配套静态图（手动组合）</option>
+                {pictures.map((p, i) => (
+                  <option key={i} value={p.name}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={featured}
+              onChange={(e) => setFeatured(e.target.checked)}
+            />
+            上传后放入精选
+          </label>
+          <div className="selection-actions">
+            <button className="primary" onClick={enqueue}>
+              开始保存
+              <ArrowUpRight size={17} />
+            </button>
+            <button className="quiet" onClick={() => setFiles([])}>
+              取消选择
+            </button>
+          </div>
+        </div>
+      )}
+      <div className="upload-settings">
+        <span>
+          同时上传
+          <select
+            aria-label="同时上传数量"
+            value={concurrency}
+            onChange={(e) => setConcurrency(Number(e.target.value))}
+          >
+            <option value={2}>2 张</option>
+            <option value={1}>1 张（省内存）</option>
+          </select>
+        </span>
+        <span>锁屏或关闭页面可能中断，请保持页面打开。</span>
+      </div>
+      {error && (
+        <p className="error notice" role="alert">
+          {error}
+        </p>
+      )}
+      {jobs.length > 0 && (
+        <div className="upload-queue">
+          <h3>上传记录</h3>
+          {jobs.map((j) => (
+            <div className={`queue-item ${j.state}`} key={j.id}>
+              <span className="queue-icon">
+                {j.state === "done" ? (
+                  <Check size={19} />
+                ) : (
+                  <Images size={19} />
+                )}
+              </span>
+              <div>
+                <strong>{j.name}</strong>
+                <p>{j.message}</p>
+                {j.state === "working" && (
+                  <progress max={1} value={j.progress} />
+                )}
+              </div>
+              {j.state === "failed" && (
+                <button
+                  className="quiet"
+                  onClick={() =>
+                    setJobs((old) =>
+                      old.map((x) =>
+                        x.id === j.id ? { ...x, state: "waiting" } : x,
+                      ),
+                    )
+                  }
+                >
+                  重试
+                </button>
+              )}
+              {j.state === "done" && <Heart size={16} />}
+            </div>
+          ))}
+        </div>
+      )}
+      {pending.length > 0 && (
+        <div className="resume-panel">
+          <h3>可恢复的上传</h3>
+          <p>页面中断后，请重新选择相同原文件；后台会核验已保存部分。</p>
+          {pending.map((s) => (
+            <div className="resume-item" key={s.id}>
+              <span>
+                {s.items
+                  .filter((i) => i.state === "pending")
+                  .map((i) => i.original_filename)
+                  .join("、")}
+              </span>
+              <button
+                className="quiet"
+                disabled={!!resumeBusy}
+                onClick={() => {
+                  setResumeSession(s);
+                  resumeInput.current?.click();
+                }}
+              >
+                {resumeBusy === s.id ? "核验中…" : "重新选择并继续"}
+              </button>
+              <button
+                className="quiet"
+                disabled={!!resumeBusy}
+                onClick={async () => {
+                  try {
+                    await cancel(client, s.id);
+                    loadPending();
+                    onChange();
+                  } catch (e) {
+                    setError(errorText(e));
+                  }
+                }}
+              >
+                取消剩余上传
+              </button>
+            </div>
+          ))}
+          <input
+            hidden
+            ref={resumeInput}
+            type="file"
+            multiple
+            accept=".jpg,.jpeg,.png,.heic,.heif,.mov,.mp4"
+            onChange={(e) => {
+              restore(e.target.files);
+              e.target.value = "";
+            }}
+          />
+        </div>
+      )}
+    </section>
+  );
+}
+function MyPage({ me, logout }: { me: any; logout: () => Promise<void> }) {
+  const ratio = (me.committed_bytes + me.reserved_bytes) / me.budget_bytes;
+  return (
+    <section className="my-page">
+      <p className="eyebrow">YOUR OWN LITTLE CORNER</p>
+      <h1>属于你的角落。</h1>
+      <div className="my-profile">
+        <span className="avatar large">{me.display_name.slice(0, 1)}</span>
+        <div>
+          <h2>{me.display_name}</h2>
+          <p>
+            <LockKeyhole size={14} /> 照片仅自己可见
+          </p>
+        </div>
+      </div>
+      <div className="stats-grid">
+        <div>
+          <span>我的照片</span>
+          <strong>
+            {me.photo_count}
+            <small>张</small>
+          </strong>
+        </div>
+        <div>
+          <span>我的文件占用</span>
+          <strong>{formatBytes(me.personal_bytes)}</strong>
+        </div>
+      </div>
+      <div className="storage-panel">
+        <h3>
+          家庭相册容量
+          <span>
+            {formatBytes(me.committed_bytes + me.reserved_bytes)} /{" "}
+            {formatBytes(me.budget_bytes)}
+          </span>
+        </h3>
+        <progress max={1} value={ratio} />
+        <p>
+          {ratio >= 1
+            ? "容量已达预算，仍可浏览、下载和删除。"
+            : me.committed_bytes + me.reserved_bytes >= me.warning_bytes
+              ? "容量接近预算，请联系管理员或清理文件。"
+              : "空间充足，继续收藏喜欢的日常。"}
+          {me.reserved_bytes > 0 &&
+            ` 待完成或待清理预留 ${formatBytes(me.reserved_bytes)}。`}
+        </p>
+      </div>
+      <div className="install-panel">
+        <h3>放到 iPhone 主屏幕</h3>
+        <p>
+          用 Safari
+          打开相册，轻点分享按钮，再选择“添加到主屏幕”。安装后可像应用一样打开。
+        </p>
+        <p className="fineprint">
+          离线时可打开页面外壳；照片浏览和上传需要联网。
+        </p>
+      </div>
+      <p className="fineprint">删除没有回收站，请保留一份独立原件备份。</p>
+      <button className="secondary logout" onClick={logout}>
+        <LogOut size={17} />
+        退出登录
+      </button>
+    </section>
+  );
+}

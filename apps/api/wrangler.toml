@@ -1,0 +1,10 @@
+name = "family-album-api"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+[vars]
+ALLOWED_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
+UPLOAD_TTL_SECONDS = "600"
+READ_TTL_SECONDS = "300"
+[triggers]
+crons = ["17 */6 * * *"]

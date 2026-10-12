@@ -1,0 +1,54 @@
+{
+  "name": "family-album",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "dev:local": "tsx scripts/local-server.ts",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "build:api": "wrangler deploy --dry-run --config apps/api/wrangler.toml",
+    "dev:api": "wrangler dev --config apps/api/wrangler.toml",
+    "deploy:api": "wrangler deploy --config apps/api/wrangler.toml",
+    "maintenance": "node --env-file-if-exists=apps/api/.dev.vars --import tsx scripts/maintenance.ts",
+    "account": "node --env-file-if-exists=apps/api/.dev.vars --import tsx scripts/account.ts",
+    "verify:original": "node --env-file-if-exists=apps/api/.dev.vars --import tsx scripts/verify-original.ts",
+    "check:private": "node scripts/check-private.mjs",
+    "test:pwa": "tsx scripts/test-pwa.ts",
+    "test:cloud": "node --env-file-if-exists=apps/api/.dev.vars --import tsx scripts/cloud-smoke.ts",
+    "backup:records": "node --env-file-if-exists=apps/api/.dev.vars --import tsx scripts/export-records.ts",
+    "backup:objects": "node --env-file-if-exists=apps/api/.dev.vars --import tsx scripts/export-objects.ts"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.117.3",
+    "aws4fetch": "1.0.20",
+    "exifr": "7.1.3",
+    "hash-wasm": "4.12.0",
+    "heic-to": "1.6.6",
+    "lucide-react": "1.55.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "zod": "4.6.6"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261012.1",
+    "@electric-sql/pglite": "0.5.9",
+    "@playwright/test": "1.64.0",
+    "@types/node": "26.6.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "prettier": "3.9.10",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "vite": "8.3.4",
+    "vitest": "5.0.4",
+    "wrangler": "4.149.0"
+  }
+}

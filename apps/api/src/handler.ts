@@ -1,0 +1,374 @@
+import { z } from "zod";
+import {
+  uploadSchema,
+  editSchema,
+  type AssetSpec,
+} from "../../../packages/shared/src/index";
+import { md5Hex, sniff, type ObjectStore } from "./storage";
+export interface DB {
+  call(name: string, args: Record<string, unknown>): Promise<any>;
+}
+export interface Dependencies {
+  db: DB;
+  store: ObjectStore;
+  authenticate(token: string): Promise<string | null>;
+  origins: string[];
+  uploadTTL: number;
+  readTTL: number;
+}
+const id = z.string().uuid();
+const publicErrors: Record<string, [number, string]> = {
+  NOT_MEMBER: [403, "此账号没有相册访问权限"],
+  NOT_FOUND: [404, "照片或上传记录不可用"],
+  RATE_LIMIT: [429, "操作较频繁，请稍后重试"],
+  BUDGET_EXCEEDED: [409, "容量不足，请先清理或联系管理员"],
+  IDEMPOTENCY_CONFLICT: [409, "重试请求的内容发生变化"],
+  UPLOAD_EXPIRED: [409, "上传会话已过期或取消，请重新选择文件"],
+  ROLE_EXISTS: [409, "此类素材已存在或仍在上传，请先恢复或取消原上传"],
+  TOO_MANY_UPLOADS: [429, "未完成上传较多，请先完成或取消"],
+  BAD_REQUEST: [400, "请求内容不正确"],
+  ORIGINAL_REQUIRED: [400, "请同时选择一张静态原件"],
+  IMMUTABLE_ORIGINAL: [409, "原件不能覆盖"],
+  CHECKSUM_MISMATCH: [422, "文件校验未通过，请重试原件上传"],
+  FILE_TYPE_MISMATCH: [422, "文件内容与格式不符"],
+  STORAGE_UNAVAILABLE: [503, "文件服务暂不可用，请稍后重试"],
+};
+class APIError extends Error {
+  constructor(
+    public code: string,
+    public status: number,
+    public detail: string,
+  ) {
+    super(code);
+  }
+}
+async function readJSON(request: Request) {
+  const reader = request.body?.getReader();
+  if (!reader) throw new APIError("BAD_REQUEST", 400, "缺少请求内容");
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const next = await reader.read();
+    if (next.done) break;
+    total += next.value.byteLength;
+    if (total > 16384) {
+      await reader.cancel();
+      throw new APIError("BAD_REQUEST", 413, "请求内容过大");
+    }
+    chunks.push(next.value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    bytes.set(c, offset);
+    offset += c.length;
+  }
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+export function createHandler(d: Dependencies) {
+  return async (request: Request): Promise<Response> => {
+    const requestID = crypto.randomUUID();
+    const origin = request.headers.get("Origin");
+    const cors: Record<string, string> = {
+      Vary: "Origin",
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+    };
+    const response = (data: unknown, status = 200) =>
+      Response.json(data, { status, headers: cors });
+    if (origin && !d.origins.includes(origin))
+      return response(
+        {
+          error: { code: "ORIGIN_DENIED", message: "此页面来源未获授权" },
+          request_id: requestID,
+        },
+        403,
+      );
+    if (origin) cors["Access-Control-Allow-Origin"] = origin;
+    if (request.method === "OPTIONS")
+      return new Response(null, {
+        status: 204,
+        headers: {
+          ...cors,
+          "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,OPTIONS",
+          "Access-Control-Allow-Headers":
+            "Authorization,Content-Type,Idempotency-Key",
+          "Access-Control-Max-Age": "600",
+        },
+      });
+    try {
+      const url = new URL(request.url);
+      const path = url.pathname;
+      if (path === "/health" && request.method === "GET")
+        return response({ status: "ok" });
+      const bearer = request.headers
+        .get("Authorization")
+        ?.match(/^Bearer (.+)$/)?.[1];
+      const owner = bearer ? await d.authenticate(bearer) : null;
+      if (!owner)
+        throw new APIError("UNAUTHENTICATED", 401, "登录已过期，请重新登录");
+      const call = (action: string, data: unknown = {}) =>
+        d.db.call("album_action", {
+          p_owner: owner,
+          p_action: action,
+          p_data: data,
+        });
+      const grants = async (sessionID: string) => {
+        const items = await call("grants", {
+          session_id: sessionID,
+          ttl: d.uploadTTL + 30,
+        });
+        return Promise.all(
+          items.map((i: any) =>
+            d.store.grantPut(
+              i.object_key,
+              {
+                role: i.role,
+                filename: i.original_filename,
+                mime: i.mime_type,
+                size: Number(i.size_bytes),
+                md5: i.md5,
+                sha256: i.sha256,
+                provenance: i.provenance,
+              } as AssetSpec,
+              i.id,
+              d.uploadTTL,
+            ),
+          ),
+        );
+      };
+      if (request.method === "GET" && ["/v1/me", "/v1/usage"].includes(path))
+        return response(await call(path.endsWith("me") ? "me" : "usage"));
+      if (path === "/v1/photos" && request.method === "GET") {
+        const cursorParam = url.searchParams.get("cursor");
+        const cursor = cursorParam
+          ? z
+              .object({
+                sort_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+                uploaded_at: z.string().datetime({ offset: true }),
+                id,
+              })
+              .parse(JSON.parse(atob(cursorParam)))
+          : undefined;
+        const photos = (
+          await call("list", {
+            featured: url.searchParams.get("featured") === "true",
+            limit: 24,
+            ...(cursor ? { cursor } : {}),
+          })
+        ).photos;
+        const last = photos.at(-1);
+        return response({
+          photos,
+          next_cursor:
+            photos.length === 24
+              ? btoa(
+                  JSON.stringify({
+                    sort_date: last.sort_date,
+                    uploaded_at: last.uploaded_at,
+                    id: last.id,
+                  }),
+                )
+              : null,
+        });
+      }
+      const photoMatch = path.match(
+        /^\/v1\/photos\/([^/]+)(?:\/(original-download|assets\/init))?$/,
+      );
+      if (photoMatch) {
+        const photoID = id.parse(photoMatch[1]);
+        const suffix = photoMatch[2];
+        if (!suffix && request.method === "GET")
+          return response(await call("photo", { photo_id: photoID }));
+        if (!suffix && request.method === "PATCH")
+          return response(
+            await call("edit", {
+              photo_id: photoID,
+              metadata: editSchema.parse(await readJSON(request)),
+            }),
+          );
+        if (!suffix && request.method === "DELETE")
+          return response(await call("delete", { photo_id: photoID }), 202);
+        if (suffix === "original-download" && request.method === "POST") {
+          const role = z
+            .enum(["original_image", "live_video"])
+            .parse((await readJSON(request)).role || "original_image");
+          const object = await call("download", { photo_id: photoID, role });
+          return response({
+            url: await d.store.grantGet(
+              object.object_key,
+              d.readTTL,
+              object.filename,
+            ),
+            filename: object.filename,
+            expires_in: d.readTTL,
+          });
+        }
+      }
+      if (
+        (path === "/v1/uploads/init" || photoMatch?.[2] === "assets/init") &&
+        request.method === "POST"
+      ) {
+        const parsed = uploadSchema.parse(await readJSON(request));
+        const key = z
+          .string()
+          .min(8)
+          .max(160)
+          .parse(request.headers.get("Idempotency-Key"));
+        const data = {
+          ...parsed,
+          ...(photoMatch ? { photo_id: id.parse(photoMatch[1]) } : {}),
+        };
+        const bytes = await crypto.subtle.digest(
+          "SHA-256",
+          new TextEncoder().encode(JSON.stringify(data)),
+        );
+        const digest = Array.from(new Uint8Array(bytes), (n) =>
+          n.toString(16).padStart(2, "0"),
+        ).join("");
+        const s = await call(photoMatch ? "supplement" : "init", {
+          ...data,
+          key,
+          digest,
+        });
+        return response(
+          { session: s, grants: s.state === "open" ? await grants(s.id) : [] },
+          201,
+        );
+      }
+      const sessionMatch = path.match(
+        /^\/v1\/uploads\/([^/]+)(?:\/(refresh|cancel|assets\/([^/]+)\/complete))?$/,
+      );
+      if (sessionMatch) {
+        const sessionID = id.parse(sessionMatch[1]);
+        const suffix = sessionMatch[2];
+        if (request.method === "GET" && !suffix)
+          return response(await call("session", { session_id: sessionID }));
+        if (request.method === "POST" && suffix === "refresh")
+          return response({ grants: await grants(sessionID) });
+        if (request.method === "POST" && suffix === "cancel")
+          return response(await call("cancel", { session_id: sessionID }));
+        if (request.method === "POST" && sessionMatch[3]) {
+          const itemID = id.parse(sessionMatch[3]);
+          const session = await call("session", { session_id: sessionID });
+          const item = session.items.find((i: any) => i.id === itemID);
+          if (!item) throw new Error("NOT_FOUND");
+          if (item.state === "committed")
+            return response(
+              await call("photo", { photo_id: session.photo_id }),
+            );
+          // Fetch only server-generated keys, never accept a client key or byte count.
+          const records = await call("grants", {
+            session_id: sessionID,
+            ttl: 0,
+          });
+          const record = records.find((i: any) => i.id === itemID);
+          if (!record) throw new Error("NOT_FOUND");
+          const head = await d.store.head(record.object_key);
+          if (
+            !head ||
+            head.size !== Number(item.size_bytes) ||
+            head.mime !== item.mime_type ||
+            head.etag.toLowerCase() !== md5Hex(item.md5)
+          )
+            throw new Error("CHECKSUM_MISMATCH");
+          if (
+            !sniff(
+              await d.store.range(record.object_key),
+              item.mime_type,
+              item.original_filename,
+            )
+          )
+            throw new Error("FILE_TYPE_MISMATCH");
+          return response(
+            await call("complete", {
+              session_id: sessionID,
+              item_id: itemID,
+              etag: head.etag,
+            }),
+          );
+        }
+      }
+      if (path === "/v1/assets/read-urls" && request.method === "POST") {
+        const body = z
+          .object({
+            ids: z
+              .array(id)
+              .min(1)
+              .max(24)
+              .refine((x) => new Set(x).size === x.length),
+          })
+          .strict()
+          .parse(await readJSON(request));
+        const records = await call("read", { ids: body.ids });
+        return response({
+          urls: await Promise.all(
+            records.map(async (a: any) => ({
+              id: a.id,
+              url: await d.store.grantGet(a.object_key, d.readTTL),
+            })),
+          ),
+        });
+      }
+      throw new APIError("NOT_FOUND", 404, "接口不可用");
+    } catch (error) {
+      if (error instanceof APIError)
+        return response(
+          {
+            error: { code: error.code, message: error.detail },
+            request_id: requestID,
+          },
+          error.status,
+        );
+      if (error instanceof z.ZodError || error instanceof SyntaxError)
+        return response(
+          {
+            error: { code: "BAD_REQUEST", message: "请检查文件和输入内容" },
+            request_id: requestID,
+          },
+          400,
+        );
+      const message = error instanceof Error ? error.message : "";
+      const known = Object.keys(publicErrors).find(
+        (code) => message === code || message.startsWith(`${code}:`),
+      );
+      const [status, detail] = known
+        ? publicErrors[known]
+        : [503, "服务暂时不可用，请稍后重试"];
+      return response(
+        {
+          error: { code: known || "SERVICE_UNAVAILABLE", message: detail },
+          request_id: requestID,
+        },
+        status,
+      );
+    }
+  };
+}
+export async function cleanUp(db: DB, store: ObjectStore, dryRun = true) {
+  const plan = await db.call("album_maintenance", {
+    p_action: "plan",
+    p_data: {},
+  });
+  let objects = 0;
+  for (const [kind, entries] of [
+    ["photo", plan.deletions],
+    ["session", plan.sessions],
+  ] as const)
+    for (const entry of entries) {
+      if (!dryRun) {
+        for (const key of entry.keys) await store.remove(key);
+        await db.call("album_maintenance", {
+          p_action: `${kind}_done`,
+          p_data: { id: entry.id },
+        });
+      }
+      objects += entry.keys.length;
+    }
+  return {
+    dry_run: dryRun,
+    photos: plan.deletions.length,
+    sessions: plan.sessions.length,
+    objects,
+  };
+}
