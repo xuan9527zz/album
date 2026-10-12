@@ -22,5 +22,6 @@
 - GitHub Pages 子路径改变：同步修改 `VITE_BASE_PATH`、manifest、Service Worker scope、Supabase 站点 URL、Worker origin 白名单和 R2 CORS。
 - Worker 更新：先运行本地测试和 dry-run，再部署。密钥轮换时在 Cloudflare 更新 Worker secrets 与桶范围密钥；不把密钥放在 GitHub 环境变量的公开版本，也不在日志输出 JWT、密码、GPS 或签名 URL。
 - Live Photo：普通相册选择可能只有静态图；在“文件”App 导出静态原件和配套 MOV/MP4，再手动组合。组合状态是未验证，不等同于系统相册还原。
+- Safari/WebKit 下载：先点“准备下载”，待文件从私有存储取回后再点“下载原件”或“下载配套视频”。准备过程需要足够的设备空闲内存，下载后可在浏览器下载列表或“文件”App 中查找。
 
 在 iPhone 上使用 Safari 分享 → 添加到主屏幕。PWA 页面外壳可离线打开，照片、上传、下载需要联网。真实 iOS 行为在设备验收前不能保证。

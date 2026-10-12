@@ -731,6 +731,13 @@ function Detail({
   const [downloadLinks, setDownloadLinks] = useState<
     Record<string, { url: string; filename: string }>
   >({});
+  const [preparedDownloads, setPreparedDownloads] = useState<
+    Record<string, string>
+  >({});
+  const localDownloadURLs = useRef(new Set<string>());
+  const needsLocalDownload =
+    /AppleWebKit/.test(navigator.userAgent) &&
+    !/(Chrome|Chromium|Edg)\//.test(navigator.userAgent);
   const input = useRef<HTMLInputElement>(null);
   const videoInput = useRef<HTMLInputElement>(null);
   const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -775,6 +782,9 @@ function Detail({
     return () => {
       live = false;
       document.removeEventListener("keydown", escape);
+      for (const objectURL of localDownloadURLs.current)
+        URL.revokeObjectURL(objectURL);
+      localDownloadURLs.current.clear();
     };
   }, []);
   const downloadableAssets =
@@ -962,11 +972,44 @@ function Detail({
                     const label =
                       a.role === "live_video" ? "下载配套视频" : "下载原件";
                     const link = downloadLinks[a.id];
+                    const prepared = preparedDownloads[a.id];
+                    if (link && needsLocalDownload && !prepared)
+                      return (
+                        <button
+                          className="secondary"
+                          key={a.id}
+                          disabled={busy}
+                          onClick={() =>
+                            action(async () => {
+                              const response = await fetch(link.url, {
+                                cache: "no-store",
+                                referrerPolicy: "no-referrer",
+                                signal: client.controller.signal,
+                              });
+                              if (!response.ok)
+                                throw new Error("原件下载准备失败，请重试");
+                              const objectURL = URL.createObjectURL(
+                                await response.blob(),
+                              );
+                              localDownloadURLs.current.add(objectURL);
+                              setPreparedDownloads((links) => ({
+                                ...links,
+                                [a.id]: objectURL,
+                              }));
+                              setNotice("文件已准备好，请再次点击下载保存。");
+                            })
+                          }
+                        >
+                          <Download size={17} />
+                          {label} · 准备下载
+                          <small>{formatBytes(Number(a.size_bytes))}</small>
+                        </button>
+                      );
                     return link ? (
                       <a
                         className="secondary"
                         key={a.id}
-                        href={link.url}
+                        href={prepared || link.url}
                         download={link.filename}
                         referrerPolicy="no-referrer"
                         onClick={() =>

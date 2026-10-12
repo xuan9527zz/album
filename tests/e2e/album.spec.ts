@@ -48,11 +48,16 @@ test("login, upload, original download, edit, feature, delete, and account isola
   await page.goto("/#/all");
   await page.locator(".photo-card").first().click();
   await expect(page.getByRole("dialog", { name: "照片详情" })).toBeVisible();
+  if (testInfo.project.name === "webkit")
+    await page.getByRole("button", { name: /下载原件 · 准备下载/ }).click();
   const [download] = await Promise.all([
     page.waitForEvent("download"),
     page.getByRole("link", { name: /下载原件/ }).click(),
   ]);
   expect(download.suggestedFilename()).toBe("landscape-0.png");
+  expect(await readFile(await download.path())).toEqual(
+    await readFile(path.resolve("tests/fixtures/landscape-0.png")),
+  );
   await page.getByRole("button", { name: "编辑日期与地点" }).click();
   await page
     .getByLabel("地点", { exact: true })
@@ -99,7 +104,7 @@ test("login, upload, original download, edit, feature, delete, and account isola
 });
 test("HEIC original and manually grouped MP4 remain downloadable", async ({
   page,
-}) => {
+}, testInfo) => {
   test.skip(
     !process.env.TEST_HEIC,
     "Synthetic HEIC fixture generation is optional",
@@ -117,11 +122,16 @@ test("HEIC original and manually grouped MP4 remain downloadable", async ({
   });
   await page.goto("/#/all");
   await page.locator(".photo-card").first().click();
+  if (testInfo.project.name === "webkit")
+    await page.getByRole("button", { name: /下载原件 · 准备下载/ }).click();
   const [download] = await Promise.all([
     page.waitForEvent("download"),
     page.getByRole("link", { name: /下载原件/ }).click(),
   ]);
   expect(download.suggestedFilename()).toBe("synthetic.heic");
+  expect(await readFile(await download.path())).toEqual(
+    await readFile(path.resolve("tests/fixtures/synthetic.heic")),
+  );
   await expect(page.locator(".detail-image img")).toBeVisible();
   await page.getByRole("button", { name: "添加配套视频" }).click();
   await page
@@ -132,6 +142,10 @@ test("HEIC original and manually grouped MP4 remain downloadable", async ({
   await expect(
     page.getByText("配套视频已保存 · 手动组合，尚未验证Live配对"),
   ).toBeVisible();
+  if (testInfo.project.name === "webkit")
+    await page
+      .getByRole("button", { name: /下载配套视频 · 准备下载/ })
+      .click();
   const [videoDownload] = await Promise.all([
     page.waitForEvent("download"),
     page.getByRole("link", { name: /下载配套视频/ }).click(),
