@@ -2,7 +2,7 @@
 
 四位固定家庭成员各自使用的私密照片相册。前端是可安装到 iPhone 主屏幕的静态 PWA；Supabase Auth 和 PostgreSQL 负责身份与记录，Cloudflare Worker 授权私有 R2 文件。每人的照片默认只对本人可见，上传原件与浏览图片分开保存。
 
-**当前状态（2026-10-13）：** 本地演示和自动化测试可运行；独立 Supabase 项目已执行数据库迁移并关闭公众注册和匿名登录，Cloudflare R2 桶已保持私有并设置 CORS，Worker 已部署并通过基础访问检查。成员账号、GitHub Pages 发布、真实云端上传和设备验收尚未完成。演示里只有程序生成的合成风景，不会在生产构建里启用演示账号。请从 [部署步骤](docs/DEPLOYMENT.md) 继续连接云服务。
+**当前状态（2026-10-13）：** [前端登录页](https://xuan9527zz.github.io/album/) 与 [Worker](https://family-album-api.xuan1996wyx.workers.dev/health) 已部署；独立 Supabase 项目已执行数据库迁移，公众注册和匿名登录已关闭，R2 桶保持私有。合成素材通过了真实云端上传、下载校验和跨账号隔离测试。四名正式成员账号、真实 iPhone 和中国大陆网络验收尚未完成。演示里只有程序生成的合成风景，生产构建不启用演示账号。请从 [部署步骤](docs/DEPLOYMENT.md) 继续开户和设备验收。
 
 ## 本地运行
 

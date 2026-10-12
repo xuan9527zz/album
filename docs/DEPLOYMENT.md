@@ -1,6 +1,6 @@
 # 从零部署
 
-独立 Supabase `album` 项目已执行 `202610120001_album.sql` 并关闭公众注册和匿名登录，Cloudflare `family-album` 私有桶已设置 CORS，Worker 已部署；成员账号、Pages 发布和真实云端上传验收尚未完成。以下步骤用于核对并继续部署，不复用其他网站的账号或数据库。不要把真实密钥提交到 Git 或聊天记录。
+独立 Supabase `album` 项目已执行 `202610120001_album.sql` 并关闭公众注册和匿名登录，Cloudflare `family-album` 私有桶已设置 CORS，Worker 与 Pages 已部署；合成素材云端冒烟测试通过。正式成员账号和真实设备验收仍待完成。以下步骤用于核对并继续部署，不复用其他网站的账号或数据库。不要把真实密钥提交到 Git 或聊天记录。
 
 ## 1. Supabase
 
@@ -20,13 +20,13 @@ Worker 的 `/health` 返回 200；不带凭据访问 `/v1/photos` 返回 401，�
 
 ## 4. GitHub Pages
 
-仓库 `xuan9527zz/album` 只放代码和合成测试素材。Settings → Pages 已选择 **GitHub Actions**；仓库 Variables 已设置 `VITE_SUPABASE_URL`、`VITE_SUPABASE_PUBLISHABLE_KEY`、`VITE_API_BASE_URL`。待 GitHub 检查通过后手动触发 `Deploy Pages`；该工作流按 `/album/` 构建并发布。预计静态 URL 为 `https://xuan9527zz.github.io/album/`，实际以 Pages 成功结果为准。不要将此预期地址当作已上线链接。
+仓库 `xuan9527zz/album` 只放代码和合成测试素材。Settings → Pages 已选择 **GitHub Actions**；仓库 Variables 已设置 `VITE_SUPABASE_URL`、`VITE_SUPABASE_PUBLISHABLE_KEY`、`VITE_API_BASE_URL`。`Deploy Pages` 首次运行成功，正式登录页为 `https://xuan9527zz.github.io/album/`。后续前端代码更新后仍需手动触发此工作流发布。
 
-Supabase Auth 的允许站点/跳转地址填实际 Pages URL。Worker `ALLOWED_ORIGINS` 与 R2 CORS 填实际 origin。Pages 可公开静态源码，但业务记录与文件必须受后台权限保护。[GitHub Pages](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages)。
+Supabase Auth 的 Site URL 和一条精确 Redirect URL 已设为上述 Pages URL。Worker `ALLOWED_ORIGINS` 与 R2 CORS 为实际 origin `https://xuan9527zz.github.io`。Pages 可公开静态源码，但业务记录与文件必须受后台权限保护。[GitHub Pages](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages)。
 
 ## 5. 真实验收和发布门槛
 
-用本人测试账号交互运行 `npm run test:cloud`：它上传合成 PNG/HEIC，核对原件下载 SHA256、重放 PUT 的 412、篡改 MD5 拒绝、幂等完成；可额外输入第二成员测试真实跨账号隔离。测试素材自动标记删除，等已发 PUT 到期后运行 `npm run maintenance -- cleanup --apply`。不含第二成员时不得标记云端跨账号测试通过。
+已用两个临时合成账号在真实 Supabase、Worker、R2 上运行等价冒烟流程：PNG/HEIC 上传及下载 SHA256、重复 PUT 的 412、幂等完成、第二账号读/下载他人照片的 404 均通过。另用真实 R2 验证篡改 MD5 被 HTTP 400 拒绝且没有对象生成、允许来源的签名 GET/CORS/附件响应头，以及浏览器来源的 PUT 预检 204 和上传 200。等待已发 PUT 到期后已完成维护清理并移除所有临时账号；核对 Auth 用户、相册记录、请求计数、预算占用和 R2 对象均为 0。正式成员建立后仍要用真实浏览器登录、上传和退出测试。
 
 再用四部真实 iPhone 分别从“照片”和“文件”App 导入，核对 HEIC 原件、Live 图像及配套视频、下载文件名和 bytes、退出切换账号、主屏幕安装/更新。在中国大陆 Wi-Fi 和移动网络上记录设备、iOS、时间和首屏/大图/上传耗时。测试报告模板见 `docs/TEST_REPORT.md`。如果真实 R2 的条件写入或校验行为不符，先修正实现并重新测，再接纳家庭照片。
 
