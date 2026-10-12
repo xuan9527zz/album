@@ -2,7 +2,7 @@
 
 最多四位家庭成员使用的照片相册。前端是静态 PWA；Supabase Auth 和 PostgreSQL 负责身份与记录，Cloudflare Worker 授权私有 R2 文件。照片默认只对本人可见，成员可选择放入家庭共享相册；只有所有者能编辑、移出共享或删除。每位成员可设置自己的昵称和头像。上传原件与浏览图片分开保存。
 
-**当前状态（2026-10-13）：** [正式相册](https://xuan9527zz.github.io/album/) 与 [Worker](https://family-album-api.xuan1996wyx.workers.dev/health) 已部署；独立 Supabase 项目已执行数据库迁移，公众注册和匿名登录已关闭，R2 桶保持私有。首位正式成员已登录并上传照片；其余成员和真实 iPhone、中国大陆网络验收仍待完成。合成素材通过了真实云端上传、下载校验和跨账号隔离测试。演示里只有程序生成的合成风景，生产构建不启用演示账号。请从 [部署步骤](docs/DEPLOYMENT.md) 继续开户和设备验收。
+**当前状态（2026-10-13）：** [正式相册](https://xuan9527zz.github.io/album/) 已发布为“唯味相册”，[Worker](https://family-album-api.xuan1996wyx.workers.dev/health) 与两次数据库迁移已部署。共享相册、成员昵称和头像编辑已上线；迁移后核对现有照片均未自动共享。公众注册和匿名登录已关闭，R2 桶保持私有。首位正式成员已登录并上传照片，第二位成员的邀请已发出；其余成员及真实 iPhone、中国大陆网络验收仍待完成。生产构建不启用演示账号。请从 [部署步骤](docs/DEPLOYMENT.md) 继续设备验收。
 
 ## 本地运行
 

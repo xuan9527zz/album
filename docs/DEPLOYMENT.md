@@ -1,10 +1,10 @@
 # 从零部署
 
-独立 Supabase `album` 项目已执行 `202610120001_album.sql` 并关闭公众注册和匿名登录，Cloudflare `family-album` 私有桶已设置 CORS，Worker 与 Pages 已部署；合成素材云端冒烟测试通过。首位正式成员已使用，第二位已收到邀请；其余成员与真实设备验收仍待完成。以下步骤用于核对并继续部署，不复用其他网站的账号或数据库。不要把真实密钥提交到 Git 或聊天记录。
+独立 Supabase `album` 项目已按顺序执行 `202610120001_album.sql` 与 `202610130001_shared_album_profiles.sql`，并关闭公众注册和匿名登录。Cloudflare `family-album` 私有桶已设置 CORS，Worker 与 Pages 已部署；先前合成素材云端冒烟测试通过。首位正式成员已使用，第二位已收到邀请；其余成员与真实设备验收仍待完成。以下步骤用于核对并继续部署，不复用其他网站的账号或数据库。不要把真实密钥提交到 Git 或聊天记录。
 
 ## 1. Supabase
 
-项目 `nqjdngemhgmahqjuuxwx` 已在 SQL Editor 执行 `supabase/migrations/202610120001_album.sql`，**不要重复执行**。核对 `profiles`、`photos`、`photo_assets` 的 RLS 已开启，anon 无业务读取权限，`authenticated` 只有本人 SELECT，`album_action` 与 `album_maintenance` 仅 service role 可执行。以后用新增迁移升级。
+项目 `nqjdngemhgmahqjuuxwx` 已在 SQL Editor 执行两份迁移，**不要重复执行**。核对 `profiles`、`photos`、`photo_assets` 的 RLS 已开启，anon 无业务读取权限，`authenticated` 只有本人 SELECT，`album_action`、`album_v2_action` 与 `album_maintenance` 仅 service role 可执行。共享照片只能通过已验证成员身份的 Worker 读取，现有照片默认不共享。以后用新增迁移升级。
 
 Auth 的公众注册与匿名登录已关闭，刷新设置页后再次核对；账号由管理员控制台或受控脚本建立，最多启用四个成员。首位成员 `xuan` 已用管理员控制台创建并在正式站点登录、上传一张照片。之后可用 `npm run invite -- 家人邮箱 昵称` 生成私密邀请链接，让受邀人自己设置密码；具体发送与清理步骤见 [维护说明](OPERATIONS.md)。Supabase 的前端 publishable key 可公开；后台 secret key 已在本机私密环境验证管理员接口，后续只能放在 Worker secrets 和本地私密环境中。[Supabase Auth](https://supabase.com/docs/guides/auth)、[API keys](https://supabase.com/docs/guides/getting-started/api-keys)、[RLS](https://supabase.com/docs/guides/database/postgres/row-level-security)。
 
@@ -14,7 +14,7 @@ Auth 的公众注册与匿名登录已关闭，刷新设置页后再次核对；
 
 ## 3. Worker
 
-`apps/api/wrangler.toml` 已设置正式前端 origin `https://xuan9527zz.github.io`，并列出必须存在的 Worker secrets：`SUPABASE_URL`、`SUPABASE_PUBLISHABLE_KEY`、`SUPABASE_SECRET_KEY`、`R2_ACCOUNT_ID`、`R2_BUCKET_NAME`、`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY`。三项密钥只由项目所有者粘贴在本机 Git 忽略的 `apps/api/.dev.vars`，再用 `npx wrangler deploy --config apps/api/wrangler.toml --secrets-file apps/api/.dev.vars` 上传到 Worker。不要通过聊天、命令行参数或 Git 提交密钥。当前 Worker URL 为 `https://family-album-api.xuan1996wyx.workers.dev`，已部署版本 `32dc2ad9-da12-4aa4-9313-0a2f70b5b312`。
+`apps/api/wrangler.toml` 已设置正式前端 origin `https://xuan9527zz.github.io`，并列出必须存在的 Worker secrets：`SUPABASE_URL`、`SUPABASE_PUBLISHABLE_KEY`、`SUPABASE_SECRET_KEY`、`R2_ACCOUNT_ID`、`R2_BUCKET_NAME`、`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY`。三项密钥只由项目所有者粘贴在本机 Git 忽略的 `apps/api/.dev.vars`，再用 `npx wrangler deploy --config apps/api/wrangler.toml --secrets-file apps/api/.dev.vars` 上传到 Worker。不要通过聊天、命令行参数或 Git 提交密钥。当前 Worker URL 为 `https://family-album-api.xuan1996wyx.workers.dev`，已部署版本 `66d72038-10a7-41f0-9c44-e3c320ec333c`。
 
 Worker 的 `/health` 返回 200；不带凭据访问 `/v1/photos` 返回 401，非允许来源返回 403，允许来源 OPTIONS 预检返回 204。还需用真实测试账号验证端到端调用。后续仅更新代码时可执行 `npm run deploy:api`，已有 secrets 会保留。GitHub Actions 的 Worker 部署工作流是手动触发，需仓库 secret `CLOUDFLARE_API_TOKEN` 与变量 `CLOUDFLARE_ACCOUNT_ID`；Worker 的业务 secrets 仍需在 Cloudflare 安全设置中输入，不由工作流生成。
 
