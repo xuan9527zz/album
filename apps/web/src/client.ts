@@ -1,6 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
 export const localDemo =
   import.meta.env.DEV && import.meta.env.VITE_LOCAL_DEMO === "true";
+export const inviteMarker = "album-invite-pending";
+if (
+  !localDemo &&
+  new URLSearchParams(window.location.hash.slice(1)).get("type") === "invite"
+)
+  sessionStorage.setItem(inviteMarker, "1");
 const config = import.meta.env;
 export const configured =
   localDemo ||

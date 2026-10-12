@@ -27,7 +27,7 @@ import {
   type UploadSession,
   formatBytes,
 } from "../../../packages/shared/src/index";
-import { auth, Client, configured, localDemo } from "./client";
+import { auth, Client, configured, inviteMarker, localDemo } from "./client";
 import {
   addDerivatives,
   addLiveVideo,
@@ -175,6 +175,97 @@ function Login({ onLocal }: { onLocal: (id: string) => void }) {
     </main>
   );
 }
+function InvitePassword({ onComplete }: { onComplete: () => void }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    if (password.length < 12) {
+      setError("密码至少需要 12 位");
+      return;
+    }
+    if (password !== confirm) {
+      setError("两次输入的密码不一致");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const result = await auth!.auth.updateUser({ password });
+      if (result.error) throw new Error("设置失败，请稍后重试或联系相册管理员");
+      setPassword("");
+      setConfirm("");
+      sessionStorage.removeItem(inviteMarker);
+      onComplete();
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <main className="login-page">
+      <section className="login-story">
+        <div className="brand">
+          <Logo />
+          {appName}
+        </div>
+        <p className="eyebrow">WELCOME TO OUR LITTLE SPACE</p>
+        <h1>
+          一起收藏，
+          <br />
+          平常的日子。
+        </h1>
+        <p>你的私人相册已经准备好了。</p>
+      </section>
+      <section className="login-form">
+        <span className="small-lock">
+          <LockKeyhole size={16} /> 家庭成员邀请
+        </span>
+        <h2>设置登录密码</h2>
+        <p>以后用收到邀请的邮箱和这个密码登录。请自己设置，不要告诉别人。</p>
+        <form onSubmit={submit}>
+          <label>
+            新密码
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="new-password"
+              minLength={12}
+              required
+            />
+          </label>
+          <label>
+            再次输入
+            <input
+              type="password"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              autoComplete="new-password"
+              minLength={12}
+              required
+            />
+          </label>
+          {error && (
+            <p className="error" role="alert">
+              {error}
+            </p>
+          )}
+          <button className="primary full" disabled={busy}>
+            {busy ? "正在保存…" : "设置密码并进入相册"}
+            <ArrowUpRight size={18} />
+          </button>
+          <p className="fineprint">
+            邀请链接过期或设置失败？请联系相册管理员重新邀请。
+          </p>
+        </form>
+      </section>
+    </main>
+  );
+}
 function useRoute() {
   const [route, setRoute] = useState(location.hash.slice(1) || "/featured");
   useEffect(() => {
@@ -186,6 +277,9 @@ function useRoute() {
 }
 export default function App() {
   const [userID, setUserID] = useState<string | null>(null);
+  const [invitePending, setInvitePending] = useState(
+    () => sessionStorage.getItem(inviteMarker) === "1",
+  );
   const [restoring, setRestoring] = useState(true);
   const [offline, setOffline] = useState(!navigator.onLine);
   useEffect(() => {
@@ -222,6 +316,8 @@ export default function App() {
   };
   const logout = async () => {
     setUserID(null);
+    setInvitePending(false);
+    sessionStorage.removeItem(inviteMarker);
     sessionStorage.removeItem("album-demo-user");
     for (let i = sessionStorage.length - 1; i >= 0; i--) {
       const key = sessionStorage.key(i);
@@ -245,6 +341,8 @@ export default function App() {
           <Logo />
           <p>正在打开相册…</p>
         </div>
+      ) : userID && invitePending ? (
+        <InvitePassword onComplete={() => setInvitePending(false)} />
       ) : userID ? (
         <Album key={userID} userID={userID} logout={logout} />
       ) : (
@@ -798,13 +896,16 @@ function Detail({
     const refresh = async () => {
       try {
         const links = await Promise.all(
-          downloadableAssets.map(async (asset) => [
-            asset.id,
-            await client.request<{ url: string; filename: string }>(
-              `/v1/photos/${photoID}/original-download`,
-              { role: asset.role },
-            ),
-          ] as const),
+          downloadableAssets.map(
+            async (asset) =>
+              [
+                asset.id,
+                await client.request<{ url: string; filename: string }>(
+                  `/v1/photos/${photoID}/original-download`,
+                  { role: asset.role },
+                ),
+              ] as const,
+          ),
         );
         if (live) setDownloadLinks(Object.fromEntries(links));
       } catch (e) {

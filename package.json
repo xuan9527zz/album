@@ -18,6 +18,7 @@
     "deploy:api": "wrangler deploy --config apps/api/wrangler.toml",
     "maintenance": "node --env-file-if-exists=apps/api/.dev.vars --import tsx scripts/maintenance.ts",
     "account": "node --env-file-if-exists=apps/api/.dev.vars --import tsx scripts/account.ts",
+    "invite": "node --env-file-if-exists=apps/api/.dev.vars --import tsx scripts/invite.ts",
     "verify:original": "node --env-file-if-exists=apps/api/.dev.vars --import tsx scripts/verify-original.ts",
     "check:private": "node scripts/check-private.mjs",
     "test:pwa": "tsx scripts/test-pwa.ts",

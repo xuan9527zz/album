@@ -4,6 +4,8 @@
 
 `npm run account -- create` 交互输入家庭成员邮箱、昵称和密码，要求邮箱归属确认。`npm run account -- disable` 以账号 UUID 停用；已有 JWT 对新业务操作会因数据库名单检查而失效。`npm run account -- activate` 补录或恢复，但触发器严格限制四个启用成员。`npm run account -- reset-password` 交互更新指定 UUID 密码，不通过公开页面发重置邮件。后台密钥保存在 Worker secrets 或 Git 忽略的私密配置中。
 
+家人自己设置密码时，管理员运行 `npm run invite -- 家人邮箱 昵称`。脚本用 Supabase Auth 生成一次性邀请链接、建立启用的成员资料，并把链接保存在 Git 忽略的 `.local/invites/`，不会把令牌打印到终端或自动发送邮件。管理员只把该链接发给对应邮箱；收件人在链接有效期内打开，设置至少 12 位密码后进入自己的相册。发送后删除本地链接文件。Supabase 默认 SMTP 只投递到项目团队邮箱；向家庭成员邮箱发送时应配置自有 SMTP，或通过管理员本人已登录的邮箱单独发送。邀请链接属于登录凭据，不能发到公开群、仓库或聊天记录。
+
 ## 容量与清理
 
 `npm run maintenance -- cleanup` 默认为 dry-run，仅输出待处理照片、会话与对象的数量；确认后 `npm run maintenance -- cleanup --apply`。Worker 每六小时也尝试同一清理。清理等待所有已发 PUT 到期再处理已登记对象，只释放实际删除成功的用量。对象存储失败时保留数据库记录与计量，下次重试。`npm run maintenance -- reconcile` 分页读取 R2 清单，对比数据库：输出对象数、字节、孤立对象数量和缺失正式对象数量，但不会自动删孤立文件或擅自改账本。先排查差异，再决定后续修复；不要清空数据库解决账本问题。
