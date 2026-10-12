@@ -127,6 +127,72 @@ test("login, upload, original download, edit, feature, delete, and account isola
   );
   expect(errors).toEqual([]);
 });
+test("iPhone offers the original image to the Photos share sheet", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1",
+    });
+    Object.defineProperty(navigator, "canShare", {
+      configurable: true,
+      value: ({ files }: ShareData) => Boolean(files?.length),
+    });
+    Object.defineProperty(navigator, "share", {
+      configurable: true,
+      value: async ({ files }: ShareData) => {
+        const file = files![0];
+        (window as any).__sharedFile = {
+          name: file.name,
+          type: file.type,
+          size: file.size,
+        };
+      },
+    });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "我的示例相册" }).click();
+  await page.goto("/#/upload");
+  await page
+    .locator(".upload-panel input[type=file]")
+    .nth(1)
+    .setInputFiles(path.resolve("tests/fixtures/landscape-0.png"));
+  await page.getByRole("button", { name: "开始保存" }).click();
+  await expect(page.getByText("原件与浏览图片已保存").last()).toBeVisible({
+    timeout: 35000,
+  });
+  await page.goto("/#/all");
+  await page.locator(".photo-card").first().click();
+  const saveButton = page.getByRole("button", { name: /保存到照片/ });
+  await expect(saveButton).toBeVisible();
+  await expect(page.getByRole("link", { name: /下载原件到文件/ })).toHaveCount(0);
+  await saveButton.click();
+  await expect
+    .poll(async () => {
+      if (await page.evaluate(() => (window as any).__sharedFile)) return "shared";
+      if (await page.getByText(/文件已准备好，请再点一次/).count()) return "prepared";
+      return "working";
+    })
+    .not.toBe("working");
+  if (!(await page.evaluate(() => (window as any).__sharedFile)))
+    await saveButton.click();
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__sharedFile))
+    .toEqual({
+      name: "landscape-0.png",
+      type: "image/png",
+      size: (await readFile(path.resolve("tests/fixtures/landscape-0.png"))).length,
+    });
+  await expect(page.getByRole("link", { name: /下载原件到文件/ })).toBeVisible();
+  await page.evaluate(() =>
+    Object.defineProperty(navigator, "canShare", {
+      configurable: true,
+      value: () => false,
+    }),
+  );
+  await saveButton.click();
+  await expect(page.getByText(/此格式无法通过系统菜单保存到照片/)).toBeVisible();
+  await expect(saveButton).toHaveCount(0);
+});
 test("HEIC original and manually grouped MP4 remain downloadable", async ({
   page,
 }, testInfo) => {

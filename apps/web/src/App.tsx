@@ -823,7 +823,13 @@ function Detail({
   const [preparedDownloads, setPreparedDownloads] = useState<
     Record<string, string>
   >({});
+  const [shareFiles, setShareFiles] = useState<Record<string, File>>({});
+  const [shareBusy, setShareBusy] = useState<string | null>(null);
+  const [unshareableIDs, setUnshareableIDs] = useState<string[]>([]);
   const localDownloadURLs = useRef(new Set<string>());
+  const isIOS =
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const needsLocalDownload =
     /AppleWebKit/.test(navigator.userAgent) &&
     !/(Chrome|Chromium|Edg)\//.test(navigator.userAgent);
@@ -935,6 +941,65 @@ function Detail({
       setEditing(false);
       onChange();
     });
+  }
+  async function saveToPhotos(
+    asset: Photo["assets"][number],
+    link?: { url: string; filename: string },
+  ) {
+    setError("");
+    setNotice("");
+    setShareBusy(asset.id);
+    try {
+      let file = shareFiles[asset.id];
+      if (!file) {
+        const grant =
+          link ||
+          (await client.request<{ url: string; filename: string }>(
+            `/v1/photos/${photoID}/original-download`,
+            { role: asset.role },
+          ));
+        const response = await fetch(grant.url, {
+          cache: "no-store",
+          referrerPolicy: "no-referrer",
+          signal: client.controller.signal,
+        });
+        if (!response.ok) throw new Error("照片准备失败，请重试");
+        const blob = await response.blob();
+        file = new File([blob], grant.filename, {
+          type: asset.mime_type || blob.type,
+        });
+        setShareFiles((files) => ({ ...files, [asset.id]: file }));
+        const objectURL = URL.createObjectURL(file);
+        localDownloadURLs.current.add(objectURL);
+        setPreparedDownloads((links) => ({ ...links, [asset.id]: objectURL }));
+      }
+      if (!navigator.canShare({ files: [file] })) {
+        setUnshareableIDs((ids) => [...ids, asset.id]);
+        setNotice(
+          "此格式无法通过系统菜单保存到照片。可长按上方浏览图选择“存储图像”，或下载原件到“文件”。",
+        );
+        return;
+      }
+      if (navigator.userActivation?.isActive === false) {
+        setNotice("文件已准备好，请再点一次“保存到照片”，然后在系统菜单中选择存储选项。");
+        return;
+      }
+      try {
+        await navigator.share({ files: [file] });
+      } catch (error) {
+        const name = error instanceof Error ? error.name : "";
+        if (name === "AbortError") return;
+        if (name === "NotAllowedError") {
+          setNotice("文件已准备好，请再点一次“保存到照片”，然后在系统菜单中选择存储选项。");
+          return;
+        }
+        throw error;
+      }
+    } catch (error) {
+      if (!client.controller.signal.aborted) setError(errorText(error));
+    } finally {
+      setShareBusy(null);
+    }
   }
   return (
     <div className="modal-backdrop">
@@ -1067,9 +1132,31 @@ function Detail({
                   >
                     <UsersRound size={17} /> {photo.is_shared ? "移出共享相册" : "放入共享相册"}
                   </button>}
+                  {isIOS && typeof navigator.share === "function" && typeof navigator.canShare === "function" && <>
+                    {downloadableAssets.filter((asset) => !unshareableIDs.includes(asset.id)).map((asset) => (
+                      <button
+                        className="primary"
+                        key={`photos-${asset.id}`}
+                        disabled={shareBusy !== null}
+                        onClick={() => void saveToPhotos(asset, downloadLinks[asset.id])}
+                      >
+                        <Download size={17} />
+                        {shareBusy === asset.id
+                          ? "正在准备文件…"
+                          : asset.role === "live_video"
+                            ? "保存视频到照片"
+                            : "保存到照片"}
+                        <small>{formatBytes(Number(asset.size_bytes))}</small>
+                      </button>
+                    ))}
+                    {downloadableAssets.some((asset) => !unshareableIDs.includes(asset.id)) &&
+                      <p className="ios-save-hint">在系统菜单中选择“存储图像”或“存储视频”。</p>}
+                  </>}
                   {downloadableAssets.map((a) => {
                     const label =
-                      a.role === "live_video" ? "下载配套视频" : "下载原件";
+                      a.role === "live_video"
+                        ? isIOS ? "下载配套视频到文件" : "下载配套视频"
+                        : isIOS ? "下载原件到文件" : "下载原件";
                     const link = downloadLinks[a.id];
                     const prepared = preparedDownloads[a.id];
                     if (link && needsLocalDownload && !prepared)
@@ -1278,7 +1365,7 @@ function Detail({
               {error}
             </p>
           )}
-          {notice && <p className="notice">{notice}</p>}
+          {notice && <p className="notice" role="status">{notice}</p>}
         </div>
       </section>
     </div>

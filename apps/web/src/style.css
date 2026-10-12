@@ -1156,6 +1156,11 @@ progress::-moz-progress-bar {
   margin-left: auto;
   font-size: 10px;
 }
+.ios-save-hint {
+  margin: -5px 0 4px;
+  color: #7e8980;
+  font-size: 11px;
+}
 .feature-toggle {
   display: flex;
   align-items: center;
