@@ -1,22 +1,22 @@
 # 从零部署
 
-当前没有 Supabase、R2 或 Worker 生产配置。按下列顺序使用 **独立的相册项目** 操作，不复用其他网站的账号或数据库。命令中的值都是示例，不要把真实密钥提交到 Git 或聊天记录。
+独立 Supabase `album` 项目已执行 `202610120001_album.sql`，Cloudflare `family-album` 私有桶已设置 CORS；Worker 密钥、成员账号、Pages 尚未配置完成。以下步骤用于核对并继续部署，不复用其他网站的账号或数据库。不要把真实密钥提交到 Git 或聊天记录。
 
 ## 1. Supabase
 
-建立独立项目。进入 SQL Editor，执行 `supabase/migrations/202610120001_album.sql`，核对 `profiles`、`photos`、`photo_assets` 的 RLS 已开启，anon 无业务读取权限，`authenticated` 只有本人 SELECT，`album_action` 与 `album_maintenance` 仅 service role 可执行。执行过的迁移不要再修改；以后用新增迁移升级。
+项目 `nqjdngemhgmahqjuuxwx` 已在 SQL Editor 执行 `supabase/migrations/202610120001_album.sql`，**不要重复执行**。核对 `profiles`、`photos`、`photo_assets` 的 RLS 已开启，anon 无业务读取权限，`authenticated` 只有本人 SELECT，`album_action` 与 `album_maintenance` 仅 service role 可执行。以后用新增迁移升级。
 
 Auth 设置中关闭公众邮箱注册和匿名登录；账号由管理员控制台或 `npm run account -- create` 建立四个。受控脚本要求交互确认邮箱属主，不发送邀请。Supabase 的前端 publishable key 可公开；后台 secret key 只能在 Worker secrets 和本地私密环境中。[Supabase Auth](https://supabase.com/docs/guides/auth)、[API keys](https://supabase.com/docs/guides/getting-started/api-keys)、[RLS](https://supabase.com/docs/guides/database/postgres/row-level-security)。
 
 ## 2. R2
 
-新建 `family-album-private` 私有桶，保持 `r2.dev` 公开访问和公共自定义域名关闭。给相册桶创建最小权限 S3 API key。配置 CORS，可参考 `config/r2-cors.example.json`：正式 origin 为 `https://xuan9527zz.github.io`，允许 GET、HEAD、PUT 与所需请求头。CORS 不是权限校验。给桶设置用量提醒；应用 8 GB 预算无法保证供应商账单绝对为零。[R2 CORS](https://developers.cloudflare.com/r2/buckets/cors/)、[R2 价格](https://developers.cloudflare.com/r2/pricing/)。
+现有 `family-album` 私有桶的 `r2.dev` 公开访问已关闭。给该桶创建仅限此桶、Object Read & Write 的 S3 API key。CORS 已按 `config/r2-cors.example.json` 设置：正式 origin 为 `https://xuan9527zz.github.io`，允许 GET、HEAD、PUT 与所需请求头。CORS 不是权限校验。给桶设置用量提醒；应用 8 GB 预算无法保证供应商账单绝对为零。[R2 CORS](https://developers.cloudflare.com/r2/buckets/cors/)、[R2 价格](https://developers.cloudflare.com/r2/pricing/)。
 
 ## 3. Worker
 
-在 `apps/api/wrangler.toml` 将 `ALLOWED_ORIGINS` 换为实际前端 origin（部署生产时删除 localhost）。需要的 Worker secrets 列在 `apps/api/.dev.vars.example`：`SUPABASE_URL`、`SUPABASE_PUBLISHABLE_KEY`、`SUPABASE_SECRET_KEY`、`R2_ACCOUNT_ID`、`R2_BUCKET_NAME`、`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY`。在 Cloudflare 环境中逐项运行 `npx wrangler secret put NAME --config apps/api/wrangler.toml` 并按提示输入，不通过命令行参数暴露值。开发时将示例文件复制为 Git 忽略的 `apps/api/.dev.vars`，只保留本机。
+`apps/api/wrangler.toml` 已设置正式前端 origin `https://xuan9527zz.github.io`，并列出必须存在的 Worker secrets：`SUPABASE_URL`、`SUPABASE_PUBLISHABLE_KEY`、`SUPABASE_SECRET_KEY`、`R2_ACCOUNT_ID`、`R2_BUCKET_NAME`、`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY`。本机的 `apps/api/.dev.vars` 已用公开值预填，另外三项密钥只由项目所有者在本机粘贴。不要通过聊天、命令行参数或 Git 提交密钥。可用 `npx wrangler deploy --config apps/api/wrangler.toml --secrets-file apps/api/.dev.vars` 一次上传完整配置；正式发布前先验证文件无占位值。此命令会部署 Worker，应在完成云端冒烟准备后执行。
 
-执行 `npm run build:api` 和 `npm run deploy:api`，记录真实 Worker URL。`GET /health` 仅可用于服务存活检测。GitHub Actions 的 Worker 部署工作流是手动触发，需仓库 secret `CLOUDFLARE_API_TOKEN` 与变量 `CLOUDFLARE_ACCOUNT_ID`；Worker 的业务 secrets 仍需在 Cloudflare 安全设置中输入，不由工作流生成。
+先执行 `npm run build:api`；首次部署使用上一段带 `--secrets-file` 的命令，并记录真实 Worker URL。后续仅更新代码时可执行 `npm run deploy:api`，已有 secrets 会保留。`GET /health` 仅可用于服务存活检测。GitHub Actions 的 Worker 部署工作流是手动触发，需仓库 secret `CLOUDFLARE_API_TOKEN` 与变量 `CLOUDFLARE_ACCOUNT_ID`；Worker 的业务 secrets 仍需在 Cloudflare 安全设置中输入，不由工作流生成。
 
 ## 4. GitHub Pages
 

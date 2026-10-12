@@ -1,20 +1,24 @@
-[
-  {
-    "AllowedOrigins": ["https://xuan9527zz.github.io"],
-    "AllowedMethods": ["GET", "HEAD", "PUT"],
-    "AllowedHeaders": [
-      "Content-Type",
-      "Content-MD5",
-      "Content-Length",
-      "If-None-Match",
-      "Cache-Control"
-    ],
-    "ExposeHeaders": [
-      "ETag",
-      "Content-Length",
-      "Content-Type",
-      "Content-Disposition"
-    ],
-    "MaxAgeSeconds": 600
-  }
-]
+{
+  "rules": [
+    {
+      "allowed": {
+        "origins": ["https://xuan9527zz.github.io"],
+        "methods": ["GET", "HEAD", "PUT"],
+        "headers": [
+          "Content-Type",
+          "Content-MD5",
+          "Content-Length",
+          "If-None-Match",
+          "Cache-Control"
+        ]
+      },
+      "exposeHeaders": [
+        "ETag",
+        "Content-Length",
+        "Content-Type",
+        "Content-Disposition"
+      ],
+      "maxAgeSeconds": 600
+    }
+  ]
+}
