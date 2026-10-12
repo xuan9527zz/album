@@ -100,9 +100,16 @@ test("login, upload, original download, edit, feature, delete, and account isola
   await expect(page.getByRole("button", { name: "编辑日期与地点" })).toHaveCount(0);
   await page.getByRole("button", { name: "关闭照片" }).click();
   await page.goto("/#/me");
+  await expect(page.getByLabel("显示昵称")).toHaveCount(0);
+  await page.getByRole("button", { name: "设置资料" }).click();
+  await page.getByLabel("显示昵称").fill("未保存的昵称");
+  await page.getByRole("button", { name: "取消" }).click();
+  await expect(page.getByLabel("显示昵称")).toHaveCount(0);
+  await page.getByRole("button", { name: "设置资料" }).click();
   await page.getByLabel("显示昵称").fill("Janice");
   await page.locator(".profile-edit input[type=file]").setInputFiles(path.resolve("tests/fixtures/landscape-0.png"));
   await page.getByRole("button", { name: "保存资料" }).click();
+  await expect(page.getByLabel("显示昵称")).toHaveCount(0);
   await expect(page.locator(".my-profile h2")).toHaveText("Janice");
   await expect(page.locator(".my-profile .avatar img")).toBeVisible();
   await page.getByRole("button", { name: "退出登录" }).click();

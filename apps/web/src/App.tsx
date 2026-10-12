@@ -1726,7 +1726,19 @@ function MyPage({ me, client, onChange, logout }: { me: any; client: Client; onC
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  const [editingProfile, setEditingProfile] = useState(false);
   const avatarInput = useRef<HTMLInputElement>(null);
+  function startEditing() {
+    setName(me.display_name);
+    setAvatar(me.avatar_data_url || null);
+    setError("");
+    setSaved(false);
+    setEditingProfile(true);
+  }
+  function cancelEditing() {
+    setError("");
+    setEditingProfile(false);
+  }
   async function save(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -1736,6 +1748,7 @@ function MyPage({ me, client, onChange, logout }: { me: any; client: Client; onC
       await client.request("/v1/me", { display_name: name.trim(), avatar_data_url: avatar }, "PATCH");
       onChange();
       setSaved(true);
+      setEditingProfile(false);
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -1749,10 +1762,10 @@ function MyPage({ me, client, onChange, logout }: { me: any; client: Client; onC
         <Avatar name={me.display_name} image={me.avatar_data_url} large />
         <div>
           <h2>{me.display_name}</h2>
-          <p>可设置昵称和头像</p>
         </div>
+        {!editingProfile && <button type="button" className="secondary profile-settings" onClick={startEditing}>设置资料</button>}
       </div>
-      <form className="profile-edit" onSubmit={save}>
+      {editingProfile && <form className="profile-edit" onSubmit={save}>
         <Avatar name={name || me.display_name} image={avatar} large />
         <div className="profile-fields">
           <label>显示昵称
@@ -1770,11 +1783,12 @@ function MyPage({ me, client, onChange, logout }: { me: any; client: Client; onC
             <button type="button" className="secondary" onClick={() => avatarInput.current?.click()}>更换头像</button>
             {avatar && <button type="button" className="quiet" onClick={() => { setAvatar(null); setSaved(false); }}>移除头像</button>}
             <button className="primary" disabled={busy}>{busy ? "保存中…" : "保存资料"}</button>
+            <button type="button" className="quiet" disabled={busy} onClick={cancelEditing}>取消</button>
           </div>
           {error && <p className="error" role="alert">{error}</p>}
-          {saved && <p className="notice">资料已保存</p>}
         </div>
-      </form>
+      </form>}
+      {saved && <p className="notice" role="status">资料已保存</p>}
       <div className="stats-grid">
         <div>
           <span>我的照片</span>

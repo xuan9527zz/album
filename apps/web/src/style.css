@@ -977,14 +977,11 @@ progress::-moz-progress-bar {
 }
 .my-profile h2 {
   font-size: 24px;
-  margin-bottom: 8px;
+  margin: 0;
 }
-.my-profile p {
-  font-size: 11px;
-  color: #95a085;
-  display: flex;
-  align-items: center;
-  gap: 7px;
+.profile-settings {
+  margin-left: auto;
+  white-space: nowrap;
 }
 .profile-edit {
   display: flex;
