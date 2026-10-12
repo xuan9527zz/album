@@ -1139,7 +1139,8 @@ progress::-moz-progress-bar {
   gap: 12px;
   margin-top: 25px;
 }
-.detail-actions > button {
+.detail-actions > button,
+.detail-actions > a {
   justify-content: flex-start;
   min-height: 45px;
   font-size: 12px;

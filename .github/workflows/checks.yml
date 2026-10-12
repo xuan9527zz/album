@@ -27,4 +27,10 @@ jobs:
         env:
           TEST_HEIC: "true"
           TEST_WEBKIT: "true"
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-failures
+          path: test-results/
+          retention-days: 3
       - run: npm run test:pwa

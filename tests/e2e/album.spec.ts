@@ -50,7 +50,7 @@ test("login, upload, original download, edit, feature, delete, and account isola
   await expect(page.getByRole("dialog", { name: "照片详情" })).toBeVisible();
   const [download] = await Promise.all([
     page.waitForEvent("download"),
-    page.getByRole("button", { name: /下载原件/ }).click(),
+    page.getByRole("link", { name: /下载原件/ }).click(),
   ]);
   expect(download.suggestedFilename()).toBe("landscape-0.png");
   await page.getByRole("button", { name: "编辑日期与地点" }).click();
@@ -119,7 +119,7 @@ test("HEIC original and manually grouped MP4 remain downloadable", async ({
   await page.locator(".photo-card").first().click();
   const [download] = await Promise.all([
     page.waitForEvent("download"),
-    page.getByRole("button", { name: /下载原件/ }).click(),
+    page.getByRole("link", { name: /下载原件/ }).click(),
   ]);
   expect(download.suggestedFilename()).toBe("synthetic.heic");
   await expect(page.locator(".detail-image img")).toBeVisible();
@@ -134,7 +134,7 @@ test("HEIC original and manually grouped MP4 remain downloadable", async ({
   ).toBeVisible();
   const [videoDownload] = await Promise.all([
     page.waitForEvent("download"),
-    page.getByRole("button", { name: /下载配套视频/ }).click(),
+    page.getByRole("link", { name: /下载配套视频/ }).click(),
   ]);
   expect(videoDownload.suggestedFilename()).toBe("synthetic.mp4");
   expect(await readFile(await videoDownload.path())).toEqual(

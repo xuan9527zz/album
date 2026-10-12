@@ -728,6 +728,9 @@ function Detail({
   const [zoom, setZoom] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [notice, setNotice] = useState("");
+  const [downloadLinks, setDownloadLinks] = useState<
+    Record<string, { url: string; filename: string }>
+  >({});
   const input = useRef<HTMLInputElement>(null);
   const videoInput = useRef<HTMLInputElement>(null);
   const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -774,6 +777,38 @@ function Detail({
       document.removeEventListener("keydown", escape);
     };
   }, []);
+  const downloadableAssets =
+    photo?.assets.filter(
+      (a) => a.role === "original_image" || a.role === "live_video",
+    ) || [];
+  const downloadableIDs = downloadableAssets.map((a) => a.id).join(",");
+  useEffect(() => {
+    if (!downloadableIDs) return;
+    let live = true;
+    const refresh = async () => {
+      try {
+        const links = await Promise.all(
+          downloadableAssets.map(async (asset) => [
+            asset.id,
+            await client.request<{ url: string; filename: string }>(
+              `/v1/photos/${photoID}/original-download`,
+              { role: asset.role },
+            ),
+          ] as const),
+        );
+        if (live) setDownloadLinks(Object.fromEntries(links));
+      } catch (e) {
+        if (live) setError(errorText(e));
+      }
+    };
+    void refresh();
+    // R2 download grants expire after five minutes. Refresh while this dialog is open.
+    const timer = window.setInterval(refresh, 240_000);
+    return () => {
+      live = false;
+      window.clearInterval(timer);
+    };
+  }, [client, photoID, downloadableIDs]);
   async function action(fn: () => Promise<void>) {
     setBusy(true);
     setError("");
@@ -923,40 +958,54 @@ function Detail({
                   >
                     编辑日期与地点
                   </button>
-                  {photo.assets
-                    .filter(
-                      (a) =>
-                        a.role === "original_image" || a.role === "live_video",
-                    )
-                    .map((a) => (
+                  {downloadableAssets.map((a) => {
+                    const label =
+                      a.role === "live_video" ? "下载配套视频" : "下载原件";
+                    const link = downloadLinks[a.id];
+                    return link ? (
+                      <a
+                        className="secondary"
+                        key={a.id}
+                        href={link.url}
+                        download={link.filename}
+                        referrerPolicy="no-referrer"
+                        onClick={() =>
+                          setNotice(
+                            "已打开原件下载。iPhone 可在下载列表或“文件”App 中查找。",
+                          )
+                        }
+                      >
+                        <Download size={17} />
+                        {label}
+                        <small>{formatBytes(Number(a.size_bytes))}</small>
+                      </a>
+                    ) : (
                       <button
                         className="secondary"
                         key={a.id}
                         disabled={busy}
-                        onClick={() =>
-                          action(async () => {
-                            const r = await client.request(
+                        onClick={() => {
+                          setError("");
+                          void client
+                            .request<{ url: string; filename: string }>(
                               `/v1/photos/${photoID}/original-download`,
                               { role: a.role },
-                            );
-                            const link = document.createElement("a");
-                            link.href = r.url;
-                            link.download = r.filename;
-                            link.rel = "noreferrer";
-                            document.body.append(link);
-                            link.click();
-                            link.remove();
-                            setNotice(
-                              "已打开原件下载。iPhone 可在下载列表或“文件”App 中查找。",
-                            );
-                          })
-                        }
+                            )
+                            .then((r) =>
+                              setDownloadLinks((links) => ({
+                                ...links,
+                                [a.id]: r,
+                              })),
+                            )
+                            .catch((e) => setError(errorText(e)));
+                        }}
                       >
                         <Download size={17} />
-                        {a.role === "live_video" ? "下载配套视频" : "下载原件"}
+                        {label} · 准备链接
                         <small>{formatBytes(Number(a.size_bytes))}</small>
                       </button>
-                    ))}
+                    );
+                  })}
                   {
                     <>
                       <button
