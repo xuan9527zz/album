@@ -127,7 +127,7 @@ test("login, upload, original download, edit, feature, delete, and account isola
   );
   expect(errors).toEqual([]);
 });
-test("iPhone offers the original image to the Photos share sheet", async ({ page }) => {
+test("iPhone opens a save popup with the original image and a share fallback", async ({ page }, testInfo) => {
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "userAgent", {
       configurable: true,
@@ -166,15 +166,19 @@ test("iPhone offers the original image to the Photos share sheet", async ({ page
   await expect(saveButton).toBeVisible();
   await expect(page.getByRole("link", { name: /下载原件到文件/ })).toHaveCount(0);
   await saveButton.click();
+  const popup = page.getByRole("dialog", { name: "保存到照片" });
+  await expect(popup).toBeVisible();
+  await expect(popup.getByText("长按图片，再选“存储图像”。")).toBeVisible();
   await expect
-    .poll(async () => {
-      if (await page.evaluate(() => (window as any).__sharedFile)) return "shared";
-      if (await page.getByText(/文件已准备好，请再点一次/).count()) return "prepared";
-      return "working";
-    })
-    .not.toBe("working");
-  if (!(await page.evaluate(() => (window as any).__sharedFile)))
-    await saveButton.click();
+    .poll(() => popup.locator("img").evaluate((image: HTMLImageElement) => image.naturalWidth))
+    .toBeGreaterThan(0);
+  expect(await page.evaluate(() => (window as any).__sharedFile)).toBeUndefined();
+  await page.screenshot({ path: `.local/save-popup-${testInfo.project.name}.png` });
+  await popup.getByRole("button", { name: "关闭保存弹窗" }).click();
+  await expect(popup).toHaveCount(0);
+  await saveButton.click();
+  await expect(popup).toBeVisible();
+  await popup.getByRole("button", { name: "改用系统菜单保存" }).click();
   await expect
     .poll(() => page.evaluate(() => (window as any).__sharedFile))
     .toEqual({
@@ -182,16 +186,17 @@ test("iPhone offers the original image to the Photos share sheet", async ({ page
       type: "image/png",
       size: (await readFile(path.resolve("tests/fixtures/landscape-0.png"))).length,
     });
-  await expect(page.getByRole("link", { name: /下载原件到文件/ })).toBeVisible();
   await page.evaluate(() =>
     Object.defineProperty(navigator, "canShare", {
       configurable: true,
       value: () => false,
     }),
   );
-  await saveButton.click();
-  await expect(page.getByText(/此格式无法通过系统菜单保存到照片/)).toBeVisible();
-  await expect(saveButton).toHaveCount(0);
+  await popup.getByRole("button", { name: "改用系统菜单保存" }).click();
+  await expect(popup.getByText(/此格式无法通过系统菜单保存/)).toBeVisible();
+  await expect(popup.getByRole("button", { name: "改用系统菜单保存" })).toHaveCount(0);
+  await popup.getByRole("button", { name: "关闭保存弹窗" }).click();
+  await expect(page.getByRole("link", { name: /下载原件到文件/ })).toBeVisible();
 });
 test("HEIC original and manually grouped MP4 remain downloadable", async ({
   page,

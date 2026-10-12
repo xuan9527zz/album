@@ -826,6 +826,10 @@ function Detail({
   const [shareFiles, setShareFiles] = useState<Record<string, File>>({});
   const [shareBusy, setShareBusy] = useState<string | null>(null);
   const [unshareableIDs, setUnshareableIDs] = useState<string[]>([]);
+  const [savePopupAssetID, setSavePopupAssetID] = useState<string | null>(null);
+  const [savePreviewFailed, setSavePreviewFailed] = useState(false);
+  const savePopupOpen = useRef(false);
+  const savePopupClose = useRef<HTMLButtonElement>(null);
   const localDownloadURLs = useRef(new Set<string>());
   const isIOS =
     /iPad|iPhone|iPod/.test(navigator.userAgent) ||
@@ -836,7 +840,15 @@ function Detail({
   const input = useRef<HTMLInputElement>(null);
   const videoInput = useRef<HTMLInputElement>(null);
   const [videoFile, setVideoFile] = useState<File | null>(null);
+  useEffect(() => {
+    if (savePopupAssetID) savePopupClose.current?.focus();
+  }, [savePopupAssetID]);
   function close() {
+    if (savePopupOpen.current) {
+      savePopupOpen.current = false;
+      setSavePopupAssetID(null);
+      return;
+    }
     location.hash = returnTo;
   }
   async function load() {
@@ -886,6 +898,7 @@ function Detail({
     photo?.assets.filter(
       (a) => a.role === "original_image" || a.role === "live_video",
     ) || [];
+  const savePopupAsset = downloadableAssets.find((a) => a.id === savePopupAssetID);
   const downloadableIDs = downloadableAssets.map((a) => a.id).join(",");
   useEffect(() => {
     if (!downloadableIDs) return;
@@ -942,46 +955,70 @@ function Detail({
       onChange();
     });
   }
-  async function saveToPhotos(
+  async function prepareShareFile(
     asset: Photo["assets"][number],
     link?: { url: string; filename: string },
-  ) {
+  ): Promise<{ file: File; url: string }> {
+    const cached = shareFiles[asset.id];
+    const cachedURL = preparedDownloads[asset.id];
+    if (cached && cachedURL) return { file: cached, url: cachedURL };
+    const grant =
+      link ||
+      (await client.request<{ url: string; filename: string }>(
+        `/v1/photos/${photoID}/original-download`,
+        { role: asset.role },
+      ));
+    const response = await fetch(grant.url, {
+      cache: "no-store",
+      referrerPolicy: "no-referrer",
+      signal: client.controller.signal,
+    });
+    if (!response.ok) throw new Error("照片准备失败，请重试");
+    const blob = await response.blob();
+    const file = new File([blob], grant.filename, {
+      type: asset.mime_type || blob.type,
+    });
+    const objectURL = URL.createObjectURL(file);
+    localDownloadURLs.current.add(objectURL);
+    setShareFiles((files) => ({ ...files, [asset.id]: file }));
+    setPreparedDownloads((links) => ({ ...links, [asset.id]: objectURL }));
+    return { file, url: objectURL };
+  }
+  async function openSavePopup(asset: Photo["assets"][number], link?: { url: string; filename: string }) {
     setError("");
     setNotice("");
     setShareBusy(asset.id);
     try {
-      let file = shareFiles[asset.id];
-      if (!file) {
-        const grant =
-          link ||
-          (await client.request<{ url: string; filename: string }>(
-            `/v1/photos/${photoID}/original-download`,
-            { role: asset.role },
-          ));
-        const response = await fetch(grant.url, {
-          cache: "no-store",
-          referrerPolicy: "no-referrer",
-          signal: client.controller.signal,
-        });
-        if (!response.ok) throw new Error("照片准备失败，请重试");
-        const blob = await response.blob();
-        file = new File([blob], grant.filename, {
-          type: asset.mime_type || blob.type,
-        });
-        setShareFiles((files) => ({ ...files, [asset.id]: file }));
-        const objectURL = URL.createObjectURL(file);
-        localDownloadURLs.current.add(objectURL);
-        setPreparedDownloads((links) => ({ ...links, [asset.id]: objectURL }));
-      }
+      await prepareShareFile(asset, link);
+      setSavePreviewFailed(false);
+      savePopupOpen.current = true;
+      setSavePopupAssetID(asset.id);
+    } catch (error) {
+      if (!client.controller.signal.aborted) setError(errorText(error));
+    } finally {
+      setShareBusy(null);
+    }
+  }
+  async function saveToPhotos(asset: Photo["assets"][number], link?: { url: string; filename: string }) {
+    setError("");
+    setNotice("");
+    setShareBusy(asset.id);
+    try {
+      const { file } = await prepareShareFile(asset, link);
       if (!navigator.canShare({ files: [file] })) {
         setUnshareableIDs((ids) => [...ids, asset.id]);
         setNotice(
-          "此格式无法通过系统菜单保存到照片。可长按上方浏览图选择“存储图像”，或下载原件到“文件”。",
+          asset.role === "original_image"
+            ? "此格式无法通过系统菜单保存。请长按弹窗中的图片选择“存储图像”，或下载原件到“文件”。"
+            : "此视频格式无法通过系统菜单保存到照片，可下载到“文件”。",
         );
         return;
       }
+      const retryText = savePopupOpen.current
+        ? "文件已准备好，请再点一次“改用系统菜单保存”。"
+        : "文件已准备好，请再点一次“保存视频到照片”。";
       if (navigator.userActivation?.isActive === false) {
-        setNotice("文件已准备好，请再点一次“保存到照片”，然后在系统菜单中选择存储选项。");
+        setNotice(retryText);
         return;
       }
       try {
@@ -990,7 +1027,7 @@ function Detail({
         const name = error instanceof Error ? error.name : "";
         if (name === "AbortError") return;
         if (name === "NotAllowedError") {
-          setNotice("文件已准备好，请再点一次“保存到照片”，然后在系统菜单中选择存储选项。");
+          setNotice(retryText);
           return;
         }
         throw error;
@@ -1008,6 +1045,7 @@ function Detail({
         role="dialog"
         aria-modal="true"
         aria-label="照片详情"
+        aria-hidden={Boolean(savePopupAssetID)}
       >
         <button
           className="modal-close icon-button"
@@ -1132,13 +1170,20 @@ function Detail({
                   >
                     <UsersRound size={17} /> {photo.is_shared ? "移出共享相册" : "放入共享相册"}
                   </button>}
-                  {isIOS && typeof navigator.share === "function" && typeof navigator.canShare === "function" && <>
-                    {downloadableAssets.filter((asset) => !unshareableIDs.includes(asset.id)).map((asset) => (
+                  {isIOS && <>
+                    {downloadableAssets.filter((asset) =>
+                      asset.role === "original_image" ||
+                      (typeof navigator.share === "function" &&
+                        typeof navigator.canShare === "function" &&
+                        !unshareableIDs.includes(asset.id)),
+                    ).map((asset) => (
                       <button
                         className="primary"
                         key={`photos-${asset.id}`}
                         disabled={shareBusy !== null}
-                        onClick={() => void saveToPhotos(asset, downloadLinks[asset.id])}
+                        onClick={() => void (asset.role === "original_image"
+                          ? openSavePopup(asset, downloadLinks[asset.id])
+                          : saveToPhotos(asset, downloadLinks[asset.id]))}
                       >
                         <Download size={17} />
                         {shareBusy === asset.id
@@ -1149,8 +1194,6 @@ function Detail({
                         <small>{formatBytes(Number(asset.size_bytes))}</small>
                       </button>
                     ))}
-                    {downloadableAssets.some((asset) => !unshareableIDs.includes(asset.id)) &&
-                      <p className="ios-save-hint">在系统菜单中选择“存储图像”或“存储视频”。</p>}
                   </>}
                   {downloadableAssets.map((a) => {
                     const label =
@@ -1368,6 +1411,46 @@ function Detail({
           {notice && <p className="notice" role="status">{notice}</p>}
         </div>
       </section>
+      {savePopupAsset && preparedDownloads[savePopupAsset.id] && (
+        <div className="save-popup-backdrop" onClick={close}>
+          <section
+            className="save-popup"
+            role="dialog"
+            aria-modal="true"
+            aria-label="保存到照片"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button ref={savePopupClose} className="save-popup-close icon-button" aria-label="关闭保存弹窗" onClick={close}>
+              <X size={22} />
+            </button>
+            <h3>保存到照片</h3>
+            <p>长按图片，再选“存储图像”。</p>
+            {!savePreviewFailed ? (
+              <img
+                src={preparedDownloads[savePopupAsset.id]}
+                alt="长按以存储原图"
+                onError={() => setSavePreviewFailed(true)}
+              />
+            ) : (
+              <p className="save-preview-error">此格式无法预览，请使用系统菜单保存原件。</p>
+            )}
+            {typeof navigator.share === "function" &&
+              typeof navigator.canShare === "function" &&
+              !unshareableIDs.includes(savePopupAsset.id) && (
+                <button
+                  className="secondary"
+                  disabled={shareBusy !== null}
+                  onClick={() => void saveToPhotos(savePopupAsset, downloadLinks[savePopupAsset.id])}
+                >
+                  改用系统菜单保存
+                </button>
+              )}
+            <button className="quiet" onClick={close}>关闭</button>
+            {notice && <p className="notice" role="status">{notice}</p>}
+            {error && <p className="error" role="alert">{error}</p>}
+          </section>
+        </div>
+      )}
     </div>
   );
 }
