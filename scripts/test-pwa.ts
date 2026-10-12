@@ -70,6 +70,7 @@ try {
   );
   await page.getByText("相册尚未配置", { exact: true }).waitFor();
   await page.evaluate(() => navigator.serviceWorker.ready);
+  assert.equal(await page.locator(".update-banner").count(), 0);
   await page.reload();
   assert.equal(
     await page.evaluate(() => !!navigator.serviceWorker.controller),

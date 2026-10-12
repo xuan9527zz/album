@@ -11,11 +11,19 @@ if (import.meta.env.PROD && "serviceWorker" in navigator) {
       );
       const announce = () => {
         if (!reg.waiting) return;
+        if (!navigator.serviceWorker.controller) {
+          reg.waiting.postMessage("activate");
+          return;
+        }
+        if (document.querySelector(".update-banner")) return;
         const button = document.createElement("button");
         button.className = "update-banner";
         button.textContent = "新版本已准备好 · 点击刷新";
         button.onclick = () => {
+          button.disabled = true;
+          button.textContent = "正在刷新…";
           reg.waiting?.postMessage("activate");
+          window.setTimeout(() => location.reload(), 1500);
         };
         document.body.append(button);
       };
