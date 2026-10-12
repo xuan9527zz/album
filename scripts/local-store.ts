@@ -88,7 +88,7 @@ export class LocalStore implements ObjectStore {
               "Content-Type": o.mime,
               ...(permission.filename
                 ? {
-                    "Content-Disposition": `attachment;filename="${safe}";filename*=UTF-8''${encodeURIComponent(permission.filename)}`,
+                    "Content-Disposition": `attachment; filename="${safe}"; filename*=UTF-8''${encodeURIComponent(permission.filename)}`,
                   }
                 : {}),
             },
