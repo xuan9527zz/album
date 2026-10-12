@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   Heart,
   Images,
+  UsersRound,
   Plus,
   UserRound,
   LogOut,
@@ -17,7 +18,6 @@ import {
   Check,
   RefreshCw,
   X,
-  Camera,
   ChevronRight,
   Leaf,
   WifiOff,
@@ -42,7 +42,7 @@ const demoIDs = [
   "33333333-3333-4333-8333-333333333333",
   "44444444-4444-4444-8444-444444444444",
 ];
-const appName = import.meta.env.VITE_APP_NAME || "拾光相册";
+const appName = "唯味相册";
 const dateText = (p: Photo) =>
   p.captured_local
     ? p.captured_local.slice(0, 10).replaceAll("-", ".")
@@ -52,10 +52,14 @@ const errorText = (e: unknown) =>
 function Logo() {
   return (
     <span className="logo-symbol">
-      <Camera size={23} />
-      <span />
+      <img src={`${import.meta.env.BASE_URL}icons/icon-192.png`} alt="" />
     </span>
   );
+}
+function Avatar({ name, image, large = false }: { name: string; image?: string | null; large?: boolean }) {
+  return <span className={`avatar${large ? " large" : ""}`}>
+    {image ? <img src={image} alt="" /> : name.slice(0, 1)}
+  </span>;
 }
 function Login({ onLocal }: { onLocal: (id: string) => void }) {
   const [email, setEmail] = useState("");
@@ -391,6 +395,8 @@ function Album({
   };
   const tab = route.startsWith("/all")
     ? "all"
+    : route.startsWith("/shared") || route.endsWith("/shared")
+      ? "shared"
     : route.startsWith("/upload")
       ? "upload"
       : route.startsWith("/me")
@@ -420,6 +426,7 @@ function Album({
   const nav = [
     { key: "featured", icon: Heart, name: "精选时光" },
     { key: "all", icon: Images, name: "全部照片" },
+    { key: "shared", icon: UsersRound, name: "共享相册" },
     { key: "upload", icon: Plus, name: "添加照片" },
     { key: "me", icon: UserRound, name: "我的" },
   ];
@@ -430,7 +437,6 @@ function Album({
           <Logo />
           {appName}
         </a>
-        <p className="sidebar-caption">属于你的日常珍藏</p>
         <nav>
           {nav.map((n) => (
             <a
@@ -454,10 +460,10 @@ function Album({
               location.hash = "/me";
             }}
           >
-            <span className="avatar">{me.display_name.slice(0, 1)}</span>
+            <Avatar name={me.display_name} image={me.avatar_data_url} />
             <span>
               {me.display_name}
-              <small>我的私密相册</small>
+              <small>个人资料</small>
             </span>
             <ChevronRight size={17} />
           </button>
@@ -471,9 +477,7 @@ function Album({
           </div>
           <span className="desktop-greeting">欢迎回来，{me.display_name}</span>
           <div className="topbar-right">
-            <span className="small-lock">
-              <LockKeyhole size={14} /> 私密相册
-            </span>
+            <span className="small-lock">我的相册</span>
             <a className="add-button" href="#/upload">
               <Plus size={17} />
               <span>添加照片</span>
@@ -481,21 +485,18 @@ function Album({
           </div>
         </header>
         <main className="main-content">
-          {tab === "featured" || tab === "all" ? (
+          {tab === "featured" || tab === "all" || tab === "shared" ? (
             <Gallery
               key={`${tab}-${revision}`}
               client={client}
-              featured={tab === "featured"}
+              mode={tab as "featured" | "all" | "shared"}
             />
           ) : null}
           <div hidden={tab !== "upload"}>
             <Upload client={client} onChange={refresh} />
           </div>
-          {tab === "me" && <MyPage me={me} logout={exit} />}
+          {tab === "me" && <MyPage me={me} client={client} onChange={refresh} logout={exit} />}
         </main>
-        <footer className="page-footer">
-          把平常的日子，好好珍藏。<span>PRIVATE FAMILY ALBUM</span>
-        </footer>
       </div>
       <nav className="bottom-nav">
         {nav.map((n) => (
@@ -510,6 +511,8 @@ function Album({
                 ? "精选"
                 : n.key === "all"
                   ? "全部"
+                  : n.key === "shared"
+                    ? "共享"
                   : n.key === "upload"
                     ? "上传"
                     : "我的"}
@@ -522,13 +525,16 @@ function Album({
           key={route}
           client={client}
           photoID={route.split("/")[2]}
+          returnTo={route.split("/")[3] === "shared" ? "/shared" : "/all"}
           onChange={refresh}
         />
       )}
     </div>
   );
 }
-function Gallery({ client, featured }: { client: Client; featured: boolean }) {
+function Gallery({ client, mode }: { client: Client; mode: "featured" | "all" | "shared" }) {
+  const featured = mode === "featured";
+  const shared = mode === "shared";
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [urls, setURLs] = useState<Record<string, string>>({});
   const [cursor, setCursor] = useState<string | null>(null);
@@ -544,7 +550,7 @@ function Gallery({ client, featured }: { client: Client; featured: boolean }) {
         photos: Photo[];
         next_cursor: string | null;
       }>(
-        `/v1/photos?featured=${featured}${next ? `&cursor=${encodeURIComponent(next)}` : ""}`,
+        `/v1/photos?${shared ? "shared=true" : `featured=${featured}`}${next ? `&cursor=${encodeURIComponent(next)}` : ""}`,
       );
       if (!active.current) return;
       setPhotos((p) =>
@@ -609,20 +615,10 @@ function Gallery({ client, featured }: { client: Client; featured: boolean }) {
     <section>
       <div className="gallery-heading">
         <div>
-          <p className="eyebrow">
-            {featured
-              ? "A COLLECTION OF LITTLE JOYS"
-              : "EVERY MOMENT HAS A PLACE"}
-          </p>
           <h1>
-            {featured ? "把喜欢的时光，留下来。" : "日子，一页一页。"}
-            <span className="title-flower">✳</span>
+            {featured ? "往事总在回忆时被赋予意义" : shared ? "共享相册" : "全部照片"}
           </h1>
-          <p>
-            {featured
-              ? "不用每一张都完美，喜欢就值得珍藏。"
-              : "按时间翻阅，找到那些平常却珍贵的瞬间。"}
-          </p>
+          {shared && <p>家庭成员都能查看和添加共享照片。</p>}
         </div>
         <div className="heading-stamp">
           <Heart size={23} />
@@ -635,6 +631,8 @@ function Gallery({ client, featured }: { client: Client; featured: boolean }) {
             <>
               <Heart size={17} fill="currentColor" /> 我的精选
             </>
+          ) : shared ? (
+            <><UsersRound size={18} /> 家庭共享</>
           ) : (
             <>
               <Images size={18} /> 全部照片
@@ -645,7 +643,7 @@ function Gallery({ client, featured }: { client: Client; featured: boolean }) {
             {cursor ? "+" : ""} 张
           </span>
         </div>
-        {!featured && (
+        {!featured && !shared && (
           <input
             className="search"
             aria-label="筛选已加载照片"
@@ -655,7 +653,7 @@ function Gallery({ client, featured }: { client: Client; featured: boolean }) {
           />
         )}
         <span className="sort-label">
-          {featured ? "每一个瞬间，都有意义" : "拍摄日期 ↓"}
+          拍摄日期 ↓
         </span>
       </div>
       {error && (
@@ -673,15 +671,13 @@ function Gallery({ client, featured }: { client: Client; featured: boolean }) {
             <Heart size={20} />
           </div>
           <h2>
-            {featured ? "喜欢的瞬间，留个位置。" : "第一张回忆，从这里开始。"}
+            {featured ? "还没有精选照片" : shared ? "还没有共享照片" : "还没有照片"}
           </h2>
           <p>
-            {featured
-              ? "上传后标记精选，或从全部照片中挑选。"
-              : "把照片的原件放进你的私密相册。"}
+            {featured ? "可以在照片详情中加入精选。" : shared ? "上传时选择共享，或分享自己已有的照片。" : "从这里开始添加照片。"}
           </p>
           <a className="primary" href={featured ? "#/all" : "#/upload"}>
-            {featured ? "去全部照片挑选" : "添加照片"}
+            {featured ? "查看全部照片" : "添加照片"}
             <ArrowUpRight size={18} />
           </a>
         </div>
@@ -702,7 +698,7 @@ function Gallery({ client, featured }: { client: Client; featured: boolean }) {
                 <a
                   className="photo-card"
                   key={p.id}
-                  href={`#/photo/${p.id}`}
+                  href={`#/photo/${p.id}${shared ? "/shared" : ""}`}
                   aria-label={`打开照片 ${p.location_label || dateText(p)}`}
                 >
                   <div className={`photo-frame frame-${index % 4}`}>
@@ -737,7 +733,7 @@ function Gallery({ client, featured }: { client: Client; featured: boolean }) {
                   <div className="photo-caption">
                     <span>{p.location_label || "一个日常瞬间"}</span>
                     <ArrowUpRight size={16} />
-                    <small>{dateText(p)}</small>
+                    <small>{dateText(p)}{shared && p.owner_name ? ` · ${p.owner_name}` : ""}</small>
                   </div>
                 </a>
               );
@@ -755,12 +751,6 @@ function Gallery({ client, featured }: { client: Client; featured: boolean }) {
           继续翻阅 <ChevronRight size={16} />
         </button>
       )}
-      <div className="gallery-end">
-        <span />
-        <Leaf size={17} />
-        <span />
-        <p>一些小事，记得就是幸福。</p>
-      </div>
     </section>
   );
 }
@@ -810,10 +800,12 @@ function PrivateImage({
 function Detail({
   client,
   photoID,
+  returnTo,
   onChange,
 }: {
   client: Client;
   photoID: string;
+  returnTo: "/all" | "/shared";
   onChange: () => void;
 }) {
   const [photo, setPhoto] = useState<Photo | null>(null);
@@ -823,7 +815,6 @@ function Detail({
   const [date, setDate] = useState("");
   const [place, setPlace] = useState("");
   const [busy, setBusy] = useState(false);
-  const [zoom, setZoom] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [notice, setNotice] = useState("");
   const [downloadLinks, setDownloadLinks] = useState<
@@ -840,7 +831,7 @@ function Detail({
   const videoInput = useRef<HTMLInputElement>(null);
   const [videoFile, setVideoFile] = useState<File | null>(null);
   function close() {
-    location.hash = "/all";
+    location.hash = returnTo;
   }
   async function load() {
     const p = await client.request<Photo>(`/v1/photos/${photoID}`);
@@ -960,10 +951,7 @@ function Detail({
         >
           <X size={23} />
         </button>
-        <div
-          className={`detail-image ${zoom ? "zoom" : ""}`}
-          onClick={() => setZoom((x) => !x)}
-        >
+        <div className="detail-image">
           {url ? (
             <PrivateImage
               url={url}
@@ -1002,7 +990,7 @@ function Detail({
                 </p>
               </div>
               <p className="private-note">
-                <LockKeyhole size={14} /> 这张照片仅你自己可见
+                {photo.is_shared ? <><UsersRound size={14} /> 家庭成员可见 · {photo.owner_name}</> : <><LockKeyhole size={14} /> 仅你自己可见</>}
               </p>
               <p className="live-note">
                 {photo.live_status === "paired_unverified"
@@ -1041,7 +1029,7 @@ function Detail({
                 </form>
               ) : (
                 <div className="detail-actions">
-                  <button
+                  {photo.is_owner !== false && <button
                     className={`feature-toggle ${photo.is_featured ? "selected" : ""}`}
                     disabled={busy}
                     onClick={() =>
@@ -1062,13 +1050,23 @@ function Detail({
                       fill={photo.is_featured ? "currentColor" : "none"}
                     />
                     {photo.is_featured ? "已放入精选" : "放入精选"}
-                  </button>
-                  <button
+                  </button>}
+                  {photo.is_owner !== false && <button
                     className="secondary"
                     onClick={() => setEditing(true)}
                   >
                     编辑日期与地点
-                  </button>
+                  </button>}
+                  {photo.is_owner !== false && <button
+                    className="secondary"
+                    disabled={busy}
+                    onClick={() => action(async () => {
+                      setPhoto(await client.request(`/v1/photos/${photoID}/share`, { is_shared: !photo.is_shared }));
+                      onChange();
+                    })}
+                  >
+                    <UsersRound size={17} /> {photo.is_shared ? "移出共享相册" : "放入共享相册"}
+                  </button>}
                   {downloadableAssets.map((a) => {
                     const label =
                       a.role === "live_video" ? "下载配套视频" : "下载原件";
@@ -1150,7 +1148,7 @@ function Detail({
                       </button>
                     );
                   })}
-                  {
+                  {photo.is_owner !== false &&
                     <>
                       <button
                         className="secondary"
@@ -1183,7 +1181,7 @@ function Detail({
                       />
                     </>
                   }
-                  {!photo.assets.some((a) => a.role === "live_video") && (
+                  {photo.is_owner !== false && !photo.assets.some((a) => a.role === "live_video") && (
                     <>
                       <button
                         className="secondary"
@@ -1231,7 +1229,7 @@ function Detail({
                       )}
                     </>
                   )}
-                  <div className="danger-area">
+                  {photo.is_owner !== false && <div className="danger-area">
                     {deleteConfirm ? (
                       <>
                         <p>
@@ -1270,7 +1268,7 @@ function Detail({
                         删除照片
                       </button>
                     )}
-                  </div>
+                  </div>}
                 </div>
               )}
             </>
@@ -1293,6 +1291,7 @@ interface Job {
   video?: File;
   provenance: "browser_selected" | "file_imported";
   featured: boolean;
+  shared: boolean;
   state: "waiting" | "working" | "done" | "failed";
   message: string;
   progress: number;
@@ -1309,6 +1308,7 @@ function Upload({
     useState<Job["provenance"]>("browser_selected");
   const [pairs, setPairs] = useState<Record<string, string>>({});
   const [featured, setFeatured] = useState(false);
+  const [shared, setShared] = useState(false);
   const [concurrency, setConcurrency] = useState(2);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [error, setError] = useState("");
@@ -1375,6 +1375,7 @@ function Upload({
         video: videos.find((v) => pairs[v.name] === file.name),
         provenance,
         featured,
+        shared,
         state: "waiting" as const,
         message: "等待上传",
         progress: 0,
@@ -1406,6 +1407,7 @@ function Upload({
         job.provenance,
         job.id,
         job.featured,
+        job.shared,
         update,
       )
         .then(() => {
@@ -1418,7 +1420,7 @@ function Upload({
                       state: "done",
                       file: undefined,
                       video: undefined,
-                      message: "原件与浏览图片已保存",
+                      message: job.shared ? "已保存到共享相册" : "原件与浏览图片已保存",
                       progress: 1,
                     }
                   : j,
@@ -1563,6 +1565,14 @@ function Upload({
             />
             上传后放入精选
           </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={shared}
+              onChange={(e) => setShared(e.target.checked)}
+            />
+            上传后放入共享相册（所有家庭成员可查看和下载）
+          </label>
           <div className="selection-actions">
             <button className="primary" onClick={enqueue}>
               开始保存
@@ -1686,21 +1696,85 @@ function Upload({
     </section>
   );
 }
-function MyPage({ me, logout }: { me: any; logout: () => Promise<void> }) {
+async function avatarFromFile(file: File): Promise<string> {
+  if (file.size > 10_000_000 || !file.type.startsWith("image/"))
+    throw new Error("请选择不超过 10 MB 的图片");
+  const source = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    image.src = source;
+    await image.decode();
+    for (const size of [256, 192, 128]) {
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = size;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("浏览器无法处理头像");
+      const side = Math.min(image.naturalWidth, image.naturalHeight);
+      context.drawImage(image, (image.naturalWidth - side) / 2, (image.naturalHeight - side) / 2, side, side, 0, 0, size, size);
+      const data = canvas.toDataURL("image/jpeg", 0.72);
+      if (data.length <= 90000) return data;
+    }
+    throw new Error("头像图片过大，请换一张");
+  } finally {
+    URL.revokeObjectURL(source);
+  }
+}
+function MyPage({ me, client, onChange, logout }: { me: any; client: Client; onChange: () => void; logout: () => Promise<void> }) {
   const ratio = (me.committed_bytes + me.reserved_bytes) / me.budget_bytes;
+  const [name, setName] = useState(me.display_name as string);
+  const [avatar, setAvatar] = useState<string | null>(me.avatar_data_url || null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+  const avatarInput = useRef<HTMLInputElement>(null);
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    setSaved(false);
+    try {
+      await client.request("/v1/me", { display_name: name.trim(), avatar_data_url: avatar }, "PATCH");
+      onChange();
+      setSaved(true);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <section className="my-page">
-      <p className="eyebrow">YOUR OWN LITTLE CORNER</p>
-      <h1>属于你的角落。</h1>
+      <h1>我的资料</h1>
       <div className="my-profile">
-        <span className="avatar large">{me.display_name.slice(0, 1)}</span>
+        <Avatar name={me.display_name} image={me.avatar_data_url} large />
         <div>
           <h2>{me.display_name}</h2>
-          <p>
-            <LockKeyhole size={14} /> 照片仅自己可见
-          </p>
+          <p>可设置昵称和头像</p>
         </div>
       </div>
+      <form className="profile-edit" onSubmit={save}>
+        <Avatar name={name || me.display_name} image={avatar} large />
+        <div className="profile-fields">
+          <label>显示昵称
+            <input value={name} maxLength={40} required onChange={(e) => { setName(e.target.value); setSaved(false); }} />
+          </label>
+          <input ref={avatarInput} type="file" accept="image/*" hidden onChange={async (e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (!file) return;
+            setError("");
+            try { setAvatar(await avatarFromFile(file)); setSaved(false); }
+            catch (error) { setError(errorText(error)); }
+          }} />
+          <div className="profile-actions">
+            <button type="button" className="secondary" onClick={() => avatarInput.current?.click()}>更换头像</button>
+            {avatar && <button type="button" className="quiet" onClick={() => { setAvatar(null); setSaved(false); }}>移除头像</button>}
+            <button className="primary" disabled={busy}>{busy ? "保存中…" : "保存资料"}</button>
+          </div>
+          {error && <p className="error" role="alert">{error}</p>}
+          {saved && <p className="notice">资料已保存</p>}
+        </div>
+      </form>
       <div className="stats-grid">
         <div>
           <span>我的照片</span>
@@ -1731,16 +1805,6 @@ function MyPage({ me, logout }: { me: any; logout: () => Promise<void> }) {
               : "空间充足，继续收藏喜欢的日常。"}
           {me.reserved_bytes > 0 &&
             ` 待完成或待清理预留 ${formatBytes(me.reserved_bytes)}。`}
-        </p>
-      </div>
-      <div className="install-panel">
-        <h3>放到 iPhone 主屏幕</h3>
-        <p>
-          用 Safari
-          打开相册，轻点分享按钮，再选择“添加到主屏幕”。安装后可像应用一样打开。
-        </p>
-        <p className="fineprint">
-          离线时可打开页面外壳；照片浏览和上传需要联网。
         </p>
       </div>
       <p className="fineprint">删除没有回收站，请保留一份独立原件备份。</p>

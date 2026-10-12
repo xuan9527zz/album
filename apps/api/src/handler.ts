@@ -51,7 +51,7 @@ async function readJSON(request: Request) {
     const next = await reader.read();
     if (next.done) break;
     total += next.value.byteLength;
-    if (total > 16384) {
+    if (total > 120000) {
       await reader.cancel();
       throw new APIError("BAD_REQUEST", 413, "请求内容过大");
     }
@@ -113,6 +113,12 @@ export function createHandler(d: Dependencies) {
           p_action: action,
           p_data: data,
         });
+      const callV2 = (action: string, data: unknown = {}) =>
+        d.db.call("album_v2_action", {
+          p_owner: owner,
+          p_action: action,
+          p_data: data,
+        });
       const grants = async (sessionID: string) => {
         const items = await call("grants", {
           session_id: sessionID,
@@ -137,8 +143,17 @@ export function createHandler(d: Dependencies) {
           ),
         );
       };
-      if (request.method === "GET" && ["/v1/me", "/v1/usage"].includes(path))
-        return response(await call(path.endsWith("me") ? "me" : "usage"));
+      if (path === "/v1/me" && request.method === "GET")
+        return response({ ...(await call("me")), ...(await callV2("profile_read")) });
+      if (path === "/v1/me" && request.method === "PATCH") {
+        const profile = z.object({
+          display_name: z.string().trim().min(1).max(40).optional(),
+          avatar_data_url: z.string().regex(/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/).max(90000).nullable().optional(),
+        }).strict().refine((v) => Object.keys(v).length > 0).parse(await readJSON(request));
+        return response(await callV2("profile", profile));
+      }
+      if (path === "/v1/usage" && request.method === "GET")
+        return response(await call("usage"));
       if (path === "/v1/photos" && request.method === "GET") {
         const cursorParam = url.searchParams.get("cursor");
         const cursor = cursorParam
@@ -150,12 +165,16 @@ export function createHandler(d: Dependencies) {
               })
               .parse(JSON.parse(atob(cursorParam)))
           : undefined;
+        const shared = url.searchParams.get("shared") === "true";
         const photos = (
-          await call("list", {
+          await (shared ? callV2("list_shared", {
+            limit: 24,
+            ...(cursor ? { cursor } : {}),
+          }) : call("list", {
             featured: url.searchParams.get("featured") === "true",
             limit: 24,
             ...(cursor ? { cursor } : {}),
-          })
+          }))
         ).photos;
         const last = photos.at(-1);
         return response({
@@ -173,13 +192,18 @@ export function createHandler(d: Dependencies) {
         });
       }
       const photoMatch = path.match(
-        /^\/v1\/photos\/([^/]+)(?:\/(original-download|assets\/init))?$/,
+        /^\/v1\/photos\/([^/]+)(?:\/(original-download|assets\/init|share))?$/,
       );
       if (photoMatch) {
         const photoID = id.parse(photoMatch[1]);
         const suffix = photoMatch[2];
         if (!suffix && request.method === "GET")
-          return response(await call("photo", { photo_id: photoID }));
+          return response(await callV2("photo", { photo_id: photoID }));
+        if (suffix === "share" && request.method === "POST")
+          return response(await callV2("share", {
+            photo_id: photoID,
+            ...z.object({ is_shared: z.boolean() }).strict().parse(await readJSON(request)),
+          }));
         if (!suffix && request.method === "PATCH")
           return response(
             await call("edit", {
@@ -193,7 +217,7 @@ export function createHandler(d: Dependencies) {
           const role = z
             .enum(["original_image", "live_video"])
             .parse((await readJSON(request)).role || "original_image");
-          const object = await call("download", { photo_id: photoID, role });
+          const object = await callV2("download", { photo_id: photoID, role });
           return response({
             url: await d.store.grantGet(
               object.object_key,
@@ -300,7 +324,7 @@ export function createHandler(d: Dependencies) {
           })
           .strict()
           .parse(await readJSON(request));
-        const records = await call("read", { ids: body.ids });
+        const records = await callV2("read", { ids: body.ids });
         return response({
           urls: await Promise.all(
             records.map(async (a: any) => ({

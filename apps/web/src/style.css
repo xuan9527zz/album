@@ -177,24 +177,19 @@ progress::-moz-progress-bar {
   white-space: nowrap;
 }
 .logo-symbol {
-  position: relative;
-  color: #366455;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: 13px;
   width: 40px;
   height: 40px;
-  background: #e2e9dc;
+  overflow: hidden;
+  background: #fff;
 }
-.logo-symbol > span {
-  position: absolute;
-  width: 6px;
-  height: 6px;
-  top: 4px;
-  right: 5px;
-  border-radius: 50%;
-  background: #b49767;
+.logo-symbol img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 .eyebrow {
   color: #8b9a8b;
@@ -218,6 +213,12 @@ progress::-moz-progress-bar {
   width: 66px;
   height: 66px;
   font-size: 24px;
+}
+.avatar img {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
 }
 .demo-banner {
   font-size: 11px;
@@ -508,7 +509,7 @@ progress::-moz-progress-bar {
 }
 .gallery-heading h1 {
   margin: 10px 0 12px;
-  font-size: 35px;
+  font-size: clamp(22px, 6.5vw, 35px);
 }
 .gallery-heading p:last-child {
   font-size: 13px;
@@ -595,10 +596,6 @@ progress::-moz-progress-bar {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: transform 0.45s;
-}
-.photo-card:hover img {
-  transform: scale(1.025);
 }
 .featured-badge {
   position: absolute;
@@ -989,6 +986,35 @@ progress::-moz-progress-bar {
   align-items: center;
   gap: 7px;
 }
+.profile-edit {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+  padding: 28px 0;
+  border-bottom: 1px solid var(--line);
+}
+.profile-fields {
+  flex: 1;
+  min-width: 0;
+}
+.profile-fields label {
+  display: block;
+  font-size: 12px;
+  color: #6e8066;
+}
+.profile-fields input {
+  display: block;
+  max-width: 380px;
+  width: 100%;
+  margin-top: 8px;
+}
+.profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
 .stats-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1015,8 +1041,7 @@ progress::-moz-progress-bar {
   font-size: 13px;
   margin-left: 8px;
 }
-.storage-panel,
-.install-panel {
+.storage-panel {
   padding: 28px 0;
   border-bottom: 1px solid var(--line);
 }
@@ -1030,14 +1055,10 @@ progress::-moz-progress-bar {
   font-weight: 400;
   color: #879878;
 }
-.storage-panel p,
-.install-panel p {
+.storage-panel p {
   font-size: 12px;
   color: #8b997e;
   margin-top: 15px;
-}
-.install-panel {
-  margin-bottom: 22px;
 }
 .logout {
   margin-top: 25px;
@@ -1083,7 +1104,6 @@ progress::-moz-progress-bar {
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: zoom-in;
 }
 .detail-image img {
   display: block;
@@ -1091,16 +1111,6 @@ progress::-moz-progress-bar {
   height: 100%;
   max-height: 85vh;
   object-fit: contain;
-}
-.detail-image.zoom {
-  cursor: zoom-out;
-}
-.detail-image.zoom img {
-  width: 180%;
-  max-width: none;
-  height: auto;
-  max-height: none;
-  flex-shrink: 0;
 }
 .detail-info {
   padding: 60px 32px 35px;
@@ -1295,9 +1305,9 @@ progress::-moz-progress-bar {
     margin: 8px 0 33px;
   }
   .gallery-heading h1 {
-    font-size: 29px;
+    font-size: clamp(21px, 6.5vw, 26px);
     margin: 10px 0 10px;
-    letter-spacing: 0.5px;
+    letter-spacing: 0;
   }
   .gallery-heading .eyebrow {
     font-size: 8px;

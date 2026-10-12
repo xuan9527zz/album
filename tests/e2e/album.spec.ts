@@ -12,7 +12,7 @@ test("login, upload, original download, edit, feature, delete, and account isola
   ).toBeVisible();
   await page.getByRole("button", { name: "我的示例相册" }).click();
   await expect(
-    page.getByRole("heading", { name: "把喜欢的时光，留下来。" }),
+    page.getByRole("heading", { name: "往事总在回忆时被赋予意义" }),
   ).toBeVisible();
   await expect(page.locator(".photo-card img")).toHaveCount(8);
   await expect
@@ -72,6 +72,11 @@ test("login, upload, original download, edit, feature, delete, and account isola
   await expect(
     page.getByRole("button", { name: "放入精选", exact: true }),
   ).toBeVisible();
+  await expect(page.locator(".detail-image.zoom")).toHaveCount(0);
+  await page.locator(".detail-image img").click();
+  await expect(page.locator(".detail-image.zoom")).toHaveCount(0);
+  await page.getByRole("button", { name: "放入共享相册" }).click();
+  await expect(page.getByRole("button", { name: "移出共享相册" })).toBeVisible();
   await page.screenshot({
     path: `.local/detail-${testInfo.project.name}.png`,
     fullPage: true,
@@ -87,13 +92,26 @@ test("login, upload, original download, edit, feature, delete, and account isola
   );
   await page.reload();
   await expect(page.locator(".photo-card")).toHaveCount(3);
+  await page.goto("/#/shared");
+  await expect(page.locator(".photo-card")).toHaveCount(1);
+  await page.locator(".photo-card").click();
+  await expect(page.getByText("家庭成员可见")).toBeVisible();
+  await expect(page.getByRole("button", { name: "删除照片", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "编辑日期与地点" })).toHaveCount(0);
+  await page.getByRole("button", { name: "关闭照片" }).click();
   await page.goto("/#/me");
+  await page.getByLabel("显示昵称").fill("Janice");
+  await page.locator(".profile-edit input[type=file]").setInputFiles(path.resolve("tests/fixtures/landscape-0.png"));
+  await page.getByRole("button", { name: "保存资料" }).click();
+  await expect(page.locator(".my-profile h2")).toHaveText("Janice");
+  await expect(page.locator(".my-profile .avatar img")).toBeVisible();
   await page.getByRole("button", { name: "退出登录" }).click();
   await page.getByRole("button", { name: "我的示例相册" }).click();
   await page.goto("/#/all");
   await page
     .getByRole("link", { name: `打开照片 专属回忆-${testInfo.project.name}` })
     .click();
+  await page.getByRole("button", { name: "移出共享相册" }).click();
   await page.getByRole("button", { name: "删除照片", exact: true }).click();
   await page.getByRole("button", { name: "确认永久删除" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);

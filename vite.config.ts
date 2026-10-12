@@ -11,7 +11,7 @@ export default defineConfig(({ mode }) => {
   return {
     root: "apps/web",
     base,
-    plugins: [react(), pwaPlugin(base, env.VITE_APP_NAME || "拾光相册")],
+    plugins: [react(), pwaPlugin(base, "唯味相册")],
     envDir: "../..",
     build: { outDir: "../../dist", emptyOutDir: true },
     server: { port: 5173, strictPort: true },

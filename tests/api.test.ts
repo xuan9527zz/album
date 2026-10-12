@@ -285,6 +285,42 @@ describe("real SQL migration + API, simulated object transport", () => {
         .status,
     ).toBe(404);
   });
+  it("shares only opted-in photos and keeps editing with the owner", async () => {
+    const r = await init(A, crypto.randomUUID(), [spec(), spec("preview")]);
+    await transfer(r);
+    await transfer(r, "preview");
+    const pid = r.session.photo_id;
+    const preview = r.session.items.find((i: any) => i.role === "preview").id;
+    expect(((await (await api("/v1/photos?shared=true", undefined, "GET", B)).json()) as any).photos).toHaveLength(0);
+    expect((await api(`/v1/photos/${pid}`, undefined, "GET", B)).status).toBe(404);
+    expect((await api("/v1/assets/read-urls", { ids: [preview] }, "POST", B)).status).toBe(404);
+    expect((await api(`/v1/photos/${pid}/share`, { is_shared: true }, "POST", B)).status).toBe(404);
+    expect((await api(`/v1/photos/${pid}/share`, { is_shared: true })).status).toBe(200);
+    const shared = (await (await api("/v1/photos?shared=true", undefined, "GET", B)).json()) as any;
+    expect(shared.photos).toHaveLength(1);
+    expect(shared.photos[0].owner_name).toBe("我的相册");
+    expect(shared.photos[0].is_owner).toBe(false);
+    expect((await api(`/v1/photos/${pid}`, undefined, "GET", B)).status).toBe(200);
+    expect((await api("/v1/assets/read-urls", { ids: [preview] }, "POST", B)).status).toBe(200);
+    expect((await api(`/v1/photos/${pid}/original-download`, {}, "POST", B)).status).toBe(200);
+    expect((await api(`/v1/photos/${pid}`, { is_featured: true }, "PATCH", B)).status).toBe(404);
+    expect((await api(`/v1/photos/${pid}`, undefined, "DELETE", B)).status).toBe(404);
+    expect((await api(`/v1/photos/${pid}/share`, { is_shared: false })).status).toBe(200);
+    expect((await api(`/v1/photos/${pid}`, undefined, "GET", B)).status).toBe(404);
+    expect((await api("/v1/assets/read-urls", { ids: [preview] }, "POST", B)).status).toBe(404);
+  });
+  it("lets each member edit only their own name and avatar", async () => {
+    const avatar_data_url = "data:image/jpeg;base64,/9j/2Q==";
+    const update = await api("/v1/me", { display_name: "Janice", avatar_data_url }, "PATCH", B);
+    expect(update.status).toBe(200);
+    const own = (await (await api("/v1/me", undefined, "GET", B)).json()) as any;
+    expect(own.display_name).toBe("Janice");
+    expect(own.avatar_data_url).toBe(avatar_data_url);
+    const other = (await (await api("/v1/me")).json()) as any;
+    expect(other.display_name).toBe("我的相册");
+    expect(other.avatar_data_url).toBeNull();
+    expect((await api("/v1/me", { avatar_data_url: "data:text/html;base64,PGgxPg==" }, "PATCH", B)).status).toBe(400);
+  });
   it("atomic reservations prevent aggregate oversubscription across four users", async () => {
     await database.sql.query(
       "update public.storage_budget set budget_bytes=$1,warning_bytes=$1",

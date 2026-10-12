@@ -2,9 +2,9 @@
 
 ## 数据与边界
 
-浏览器从 Supabase Auth 取得 access token。Worker 使用 Supabase `getClaims` 验证签名、发行者、受众和有效期，再由数据库 `album_action` 检查启用名单及每条照片归属。Worker 持有后台密钥，因此每个业务 RPC 仍明确检查 `owner_id`；前端无法写入数据库表。`authenticated` 只可在 RLS 限制下读取本人的 `profiles`、`photos` 和 `photo_assets`。`anon` 读不到业务数据。`upload_sessions`、`upload_items`、`storage_budget` 都只供 service role 使用。
+浏览器从 Supabase Auth 取得 access token。Worker 使用 Supabase `getClaims` 验证签名、发行者、受众和有效期，再由数据库 RPC 检查启用名单及照片归属。原有 `album_action` 保持上传、修改、删除只限所有者；新增 `album_v2_action` 只向启用成员提供共享照片的读取及下载，分享开关和个人资料修改仍只由本人操作。Worker 持有后台密钥，前端无法写入数据库表。`authenticated` 的直连 RLS 仍只可读取本人记录；共享访问仅走已鉴权的 Worker。`anon` 读不到业务数据。`upload_sessions`、`upload_items`、`storage_budget` 都只供 service role 使用。
 
-初始数据库迁移为 `202610120001_album.sql`。四人限制在数据库触发器中执行。`photos` 按本人、拍摄日期和上传时间稳定分页；缺拍摄日期才使用上传日期排序。EXIF 本地时间和 UTC 偏移分开存储，不在未知时区时推算 UTC。上传时读取的原始元数据保存在 `source_metadata`，显示信息可编辑但不改变文件。
+初始数据库迁移为 `202610120001_album.sql`；`202610130001_shared_album_profiles.sql` 添加默认关闭的 `is_shared`、成员头像字段和受控共享 RPC。既有照片不会自动进入共享相册；共享列表只显示已完成上传且由本人明确共享的照片。取消共享后不再签发新链接，先前签发的短时链接仍需等有效期结束。昵称和头像仅由本人修改；头像在浏览器裁为小尺寸 JPEG 并限制在 90 KB data URL 内，保存在个人资料表。四人限制在数据库触发器中执行。照片按拍摄日期和上传时间稳定分页；缺拍摄日期才使用上传日期排序。EXIF 本地时间和 UTC 偏移分开存储，不在未知时区时推算 UTC。上传时读取的原始元数据保存在 `source_metadata`，显示信息可编辑但不改变文件。
 
 ## 文件链路
 

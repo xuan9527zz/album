@@ -126,6 +126,9 @@ export interface Photo {
   longitude: number | null;
   location_source: string;
   is_featured: boolean;
+  is_shared: boolean;
+  is_owner?: boolean;
+  owner_name?: string;
   original_status: string;
   preview_status: string;
   live_status: string;

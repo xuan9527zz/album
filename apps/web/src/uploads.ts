@@ -102,6 +102,7 @@ export async function uploadPhoto(
   provenance: AssetSpec["provenance"],
   key: string,
   featured: boolean,
+  shared: boolean,
   progress: (text: string, n: number) => void,
 ) {
   progress("读取拍摄信息与校验原件", 0);
@@ -152,6 +153,13 @@ export async function uploadPhoto(
     throw new Error(
       `原件已保存；${e instanceof Error ? e.message : "浏览图片生成失败"}。到全部照片中补传预览。`,
     );
+  }
+  if (shared) {
+    try {
+      await client.request(`/v1/photos/${result.session.photo_id}/share`, { is_shared: true });
+    } catch {
+      throw new Error("照片已保存到个人相册，但共享失败。请到“全部照片”打开该照片，再选择放入共享相册。");
+    }
   }
   return result.session.photo_id;
 }
