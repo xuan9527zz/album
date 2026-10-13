@@ -483,15 +483,18 @@ progress::-moz-progress-bar {
   gap: 24px;
 }
 .add-button {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  flex-shrink: 0;
+  gap: 8px;
   border: 1px solid #d4dbc9;
-  padding: 9px 13px;
-  border-radius: 5px;
+  padding: 0 16px;
+  border-radius: 14px;
   color: #5f765a;
   font-size: 12px;
-  min-height: 40px;
+  min-height: 44px;
+  white-space: nowrap;
 }
 .mobile-brand {
   display: none;
@@ -1522,9 +1525,9 @@ progress::-moz-progress-bar {
     display: none;
   }
   .add-button {
-    border: none;
-    font-size: 11px;
-    padding: 10px 0;
+    min-width: 108px;
+    padding: 0 13px;
+    font-size: 12px;
   }
   .main-content {
     padding: 31px 24px 0;
