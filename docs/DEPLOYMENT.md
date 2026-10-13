@@ -18,9 +18,11 @@ Auth 的公众注册与匿名登录已关闭，刷新设置页后再次核对；
 
 Worker 的 `/health` 返回 200；不带凭据访问 `/v1/photos` 与 `/v1/trash` 均返回 401，非允许来源返回 403，允许来源 OPTIONS 预检返回 204。正式登录页面的最近删除入口可正常读取空列表；还需用真实测试账号验证删除与恢复的端到端操作。后续仅更新代码时可执行 `npm run deploy:api`，已有 secrets 会保留。GitHub Actions 的 Worker 部署工作流是手动触发，需仓库 secret `CLOUDFLARE_API_TOKEN` 与变量 `CLOUDFLARE_ACCOUNT_ID`；Worker 的业务 secrets 仍需在 Cloudflare 安全设置中输入，不由工作流生成。
 
+2026-10-13 增加 `supabase/functions/album-gateway/index.js`：用户无 VPN 时 `workers.dev` 不可达，而同一设备能访问 Supabase 与 R2。Supabase Edge Function 将 `/health` 和 `/v1/*` 转发至固定 Worker 地址，不接受任意目标 URL；浏览器来源限制为正式 Pages origin，业务请求仍由 Worker 核验 Supabase JWT。该函数在项目控制台已部署并关闭不兼容新密钥的旧版 JWT 入口检查；未登录的 `/v1/photos` 仍返回 401。GitHub Actions 变量 `VITE_API_BASE_URL` 现为 `https://nqjdngemhgmahqjuuxwx.supabase.co/functions/v1/album-gateway`。R2 私有桶和直连签名 URL 没有改动。以后修改网关代码，需要重新部署该 Edge Function；仅推送 GitHub 仓库不会自动更新函数。[Supabase Edge Functions](https://supabase.com/docs/guides/functions/quickstart)、[函数认证](https://supabase.com/docs/guides/functions/auth)、[R2 签名 URL 域名限制](https://developers.cloudflare.com/r2/api/s3/presigned-urls/)。
+
 ## 4. GitHub Pages
 
-仓库 `xuan9527zz/album` 只放代码和合成测试素材。Settings → Pages 已选择 **GitHub Actions**；仓库 Variables 已设置 `VITE_SUPABASE_URL`、`VITE_SUPABASE_PUBLISHABLE_KEY`、`VITE_API_BASE_URL`。[Deploy Pages #8](https://github.com/xuan9527zz/album/actions/runs/38346020252) 从提交 `f6ccdad` 构建并发布成功，30 项测试全部通过；正式站点为 `https://xuan9527zz.github.io/album/`。已登录页面显示批量管理，个人资料有最近删除入口，最近删除可正常显示空列表。后续前端代码更新后仍需手动触发此工作流发布。
+仓库 `xuan9527zz/album` 只放代码和合成测试素材。Settings → Pages 已选择 **GitHub Actions**；仓库 Variables 已设置 `VITE_SUPABASE_URL`、`VITE_SUPABASE_PUBLISHABLE_KEY`、`VITE_API_BASE_URL`。[Deploy Pages #9](https://github.com/xuan9527zz/album/actions/runs/38349112528) 从提交 `c5bf299` 构建并发布成功，34 项测试全部通过；正式站点为 `https://xuan9527zz.github.io/album/`，生产 bundle 已核对使用 Supabase 网关地址。已登录页面显示批量管理，个人资料有最近删除入口，最近删除可正常显示空列表。后续前端代码更新后仍需手动触发此工作流发布。
 
 Supabase Auth 的 Site URL 和一条精确 Redirect URL 已设为上述 Pages URL。Worker `ALLOWED_ORIGINS` 与 R2 CORS 为实际 origin `https://xuan9527zz.github.io`。Pages 可公开静态源码，但业务记录与文件必须受后台权限保护。[GitHub Pages](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages)。
 
