@@ -1819,3 +1819,7 @@ progress::-moz-progress-bar {
     display: none;
   }
 }
+@media (max-width: 420px) {
+  .bottom-nav { padding-left: 6px; padding-right: 6px; }
+  .bottom-nav a { flex: 1; min-width: 0; }
+}

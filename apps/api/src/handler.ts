@@ -35,6 +35,7 @@ const publicErrors: Record<string, [number, string]> = {
   FILE_TYPE_MISMATCH: [422, "文件内容与格式不符"],
   STORAGE_UNAVAILABLE: [503, "文件服务暂不可用，请稍后重试"],
   COMMENT_LIMIT: [409, "这张照片的评论已达上限"],
+  STORY_LIMIT: [409, "影集最多保存 50 本"],
 };
 class APIError extends Error {
   constructor(
@@ -140,16 +141,22 @@ export function createHandler(d: Dependencies) {
           p_action: action,
           p_data: data,
         });
+      const callV6 = (action: string, data: unknown = {}) =>
+        d.db.call("album_v6_action", {
+          p_owner: owner,
+          p_action: action,
+          p_data: data,
+        });
       const pushEvent = async (sourceID: string) => {
         if (!d.push) return;
         try { d.push(await callV5("push_event", { source_id: sourceID })); }
         catch { /* A failed push must not undo a saved comment, like, or message. */ }
       };
       const signedPreviews = async (photos: any[], trashed = false, detail = false) => {
-        const ids = photos.map((p) => detail
+        const ids = [...new Set(photos.map((p) => detail
           ? p.assets.find((a: any) => a.role === "preview")?.id
           : (p.assets.find((a: any) => a.role === "thumbnail") ||
-             p.assets.find((a: any) => a.role === "preview"))?.id).filter(Boolean);
+             p.assets.find((a: any) => a.role === "preview"))?.id).filter(Boolean))];
         if (!ids.length) return [];
         const records = await callV3(trashed ? "read_trashed" : "read", { ids });
         return Promise.all(records.map(async (a: any) => ({
@@ -193,6 +200,32 @@ export function createHandler(d: Dependencies) {
         return response(await callV3("summary"));
       if (path === "/v1/members" && request.method === "GET")
         return response(await callV3("members"));
+      const storyBody = z.object({
+        title: z.string().trim().min(1).max(80),
+        template: z.enum(["journal", "cinema", "postcard"]),
+        transition: z.enum(["slide", "fade", "zoom"]),
+        is_shared: z.boolean(),
+        photo_ids: z.array(id).min(2).max(60).refine((ids) => new Set(ids).size === ids.length),
+      }).strict();
+      if (path === "/v1/stories" && request.method === "GET") {
+        const result = await callV6("list");
+        const covers = result.stories.map((story: any) => story.cover_photo).filter(Boolean);
+        return response({ stories: result.stories, urls: await signedPreviews(covers) });
+      }
+      if (path === "/v1/stories" && request.method === "POST")
+        return response(await callV6("create", storyBody.parse(await readJSON(request))), 201);
+      const storyMatch = path.match(/^\/v1\/stories\/([^/]+)$/);
+      if (storyMatch) {
+        const storyID = id.parse(storyMatch[1]);
+        if (request.method === "GET") {
+          const story = await callV6("detail", { story_id: storyID });
+          return response({ ...story, urls: await signedPreviews(story.photos, false, true) });
+        }
+        if (request.method === "PATCH")
+          return response(await callV6("update", { story_id: storyID, ...storyBody.parse(await readJSON(request)) }));
+        if (request.method === "DELETE")
+          return response(await callV6("delete", { story_id: storyID }));
+      }
       if (path === "/v1/notifications" && request.method === "GET")
         return response(await callV5("notifications"));
       if (path === "/v1/notifications/read" && request.method === "POST")

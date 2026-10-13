@@ -84,7 +84,7 @@ beforeAll(async () => {
 });
 beforeEach(async () => {
   await database.sql.exec(
-    "truncate public.photos,public.upload_sessions,public.upload_items,public.photo_assets,public.request_limits cascade;update public.storage_budget set committed_bytes=0,reserved_bytes=0,budget_bytes=8000000000,warning_bytes=6000000000;update public.profiles set is_active=true;",
+    "truncate public.story_albums,public.photos,public.upload_sessions,public.upload_items,public.photo_assets,public.request_limits cascade;update public.storage_budget set committed_bytes=0,reserved_bytes=0,budget_bytes=8000000000,warning_bytes=6000000000;update public.profiles set is_active=true;",
   );
   store = new LocalStore();
   handler = createHandler({
@@ -314,6 +314,30 @@ describe("real SQL migration + API, simulated object transport", () => {
     expect((await api(`/v1/photos/${pid}/share`, { is_shared: false })).status).toBe(200);
     expect((await api(`/v1/photos/${pid}`, undefined, "GET", B)).status).toBe(404);
     expect((await api("/v1/assets/read-urls", { ids: [preview] }, "POST", B)).status).toBe(404);
+  });
+  it("serves multiple story covers that reuse one photo without leaking private stories", async () => {
+    const photoIDs: string[] = [];
+    for (let index = 0; index < 2; index++) {
+      const upload = await init(A, crypto.randomUUID(), [spec(), spec("thumbnail")]);
+      await transfer(upload, "original_image");
+      await transfer(upload, "thumbnail");
+      photoIDs.push(upload.session.photo_id);
+    }
+    const story = {
+      title: "东京", template: "journal", transition: "slide", is_shared: false,
+      photo_ids: photoIDs,
+    };
+    const first = await api("/v1/stories", story);
+    expect(first.status).toBe(201);
+    const firstStory = await first.json() as any;
+    expect((await api(`/v1/stories/${firstStory.id}`, undefined, "GET", B)).status).toBe(404);
+    expect((await api("/v1/stories", undefined, "GET", B).then((r) => r.json()) as any).stories).toHaveLength(0);
+    expect((await api("/v1/stories", story)).status).toBe(201);
+    const listing = await api("/v1/stories");
+    expect(listing.status).toBe(200);
+    const data = await listing.json() as any;
+    expect(data.stories).toHaveLength(2);
+    expect(data.urls).toHaveLength(1);
   });
   it("lets each member edit only their own name and avatar", async () => {
     const avatar_data_url = "data:image/jpeg;base64,/9j/2Q==";

@@ -42,6 +42,12 @@ export async function localDatabase(): Promise<{ sql: PGlite; db: DB }> {
       "utf8",
     ),
   );
+  await sql.exec(
+    await readFile(
+      new URL("../supabase/migrations/202610140001_story_albums.sql", import.meta.url),
+      "utf8",
+    ),
+  );
   for (const [index, user] of demoUsers.entries()) {
     await sql.query("insert into auth.users values($1)", [user]);
     await sql.query(
@@ -51,7 +57,7 @@ export async function localDatabase(): Promise<{ sql: PGlite; db: DB }> {
   }
   const db: DB = {
     async call(name, args) {
-      if (!["album_action", "album_v2_action", "album_v3_action", "album_v4_action", "album_v5_action", "album_maintenance", "album_v3_maintenance"].includes(name))
+      if (!["album_action", "album_v2_action", "album_v3_action", "album_v4_action", "album_v5_action", "album_v6_action", "album_maintenance", "album_v3_maintenance"].includes(name))
         throw new Error("RPC_NOT_ALLOWED");
       const keys = Object.keys(args);
       const r = await sql.query<{ result: any }>(

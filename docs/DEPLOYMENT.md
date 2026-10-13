@@ -6,6 +6,8 @@
 
 项目 `nqjdngemhgmahqjuuxwx` 已在 SQL Editor 执行五份迁移，**不要重复执行**。最新的 `202610130004_messages_likes_titles_push.sql` 于 2026-10-13 执行成功，新增独立照片标题、个人点赞、群聊、消息与推送订阅及 `album_v5_action`，未自动共享已有照片。发布顺序为**先运行迁移，再部署 Worker，最后部署 Pages**。`profiles`、`photos`、`photo_assets`、`photo_comments` 及新消息表的 RLS 和函数权限仍应定期审计；anon 无业务读取权限，`authenticated` 只有本人且非最近删除的照片 SELECT；评论、点赞和聊天通过已鉴权的 Worker 与仅 service role 可执行的 RPC 访问。现有照片默认不共享。
 
+待发布的影集功能对应 `202610140001_story_albums.sql`。它只新增影集及有序照片引用表和 `album_v6_action`，不复制、移动或共享现有照片；新影集默认仅创建者可见。正式环境必须先执行这份迁移，确认函数可用，再部署新版 Worker，最后部署 Pages。不要先发布影集前端，否则页面会出现“服务暂时不可用”。回滚 Worker 或网页时保留已应用的迁移与影集记录。
+
 Auth 的公众注册与匿名登录已关闭，刷新设置页后再次核对；账号由管理员控制台或受控脚本建立，最多启用四个成员。首位成员 `xuan` 已用管理员控制台创建并在正式站点登录、上传一张照片。之后可用 `npm run invite -- 家人邮箱 昵称` 生成私密邀请链接，让受邀人自己设置密码；具体发送与清理步骤见 [维护说明](OPERATIONS.md)。Supabase 的前端 publishable key 可公开；后台 secret key 已在本机私密环境验证管理员接口，后续只能放在 Worker secrets 和本地私密环境中。[Supabase Auth](https://supabase.com/docs/guides/auth)、[API keys](https://supabase.com/docs/guides/getting-started/api-keys)、[RLS](https://supabase.com/docs/guides/database/postgres/row-level-security)。
 
 ## 2. R2

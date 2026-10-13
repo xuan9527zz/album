@@ -25,6 +25,7 @@ import {
   MessageCircle,
   Bell,
   Send,
+  Film,
 } from "lucide-react";
 import {
   type Photo,
@@ -34,6 +35,7 @@ import {
 import { auth, Client, configured, inviteMarker, localDemo } from "./client";
 import { cachedImage, clearImageCache, imageInSession } from "./session-image-cache";
 import { metadata as readPhotoMetadata } from "./files";
+import { StoryArea } from "./StoryStudio";
 import {
   addDerivatives,
   addLiveVideo,
@@ -440,6 +442,8 @@ function Album({
   };
   const tab = route.startsWith("/all")
     ? "all"
+    : route.startsWith("/stories")
+      ? "stories"
     : route.startsWith("/shared") || route.endsWith("/shared")
       ? "shared"
     : route.startsWith("/trash")
@@ -476,6 +480,7 @@ function Album({
     { key: "featured", icon: Heart, name: "精选时光" },
     { key: "all", icon: Images, name: "全部照片" },
     { key: "shared", icon: UsersRound, name: "共享相册" },
+    { key: "stories", icon: Film, name: "影集" },
     { key: "messages", icon: MessageCircle, name: "消息" },
     { key: "me", icon: UserRound, name: "我的" },
   ];
@@ -544,6 +549,7 @@ function Album({
             />
           ) : null}
           {tab === "trash" && <TrashPage key={revision} client={client} onChange={refresh} />}
+          {tab === "stories" && <StoryArea client={client} route={route} />}
           {tab === "messages" && <MessagesPage client={client} userID={userID} onRead={() => setUnread(0)} />}
           <div hidden={tab !== "upload"}>
             <Upload client={client} onChange={refresh} />
@@ -567,6 +573,8 @@ function Album({
                   ? "全部"
                   : n.key === "shared"
                     ? "共享"
+                  : n.key === "stories"
+                    ? "影集"
                   : n.key === "messages"
                     ? "消息"
                     : "我的"}
