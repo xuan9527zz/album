@@ -2072,10 +2072,10 @@ function Upload({
     }
   }
   return (
-    <section className="upload-page">
-      <p className="eyebrow">MAKE ROOM FOR NEW MEMORIES</p>
-      <h1>再收藏一点日常。</h1>
-      <p className="intro">保存照片原件，把喜欢的瞬间放进相册。</p>
+    <section className={`upload-page${files.length ? " has-selection" : ""}`}>
+      {!files.length && <p className="eyebrow">上传照片</p>}
+      <h1>{files.length ? "确认照片" : "上传照片"}</h1>
+      {!files.length && <p className="intro">可在保存前编辑标题、拍摄时间和地点。</p>}
       <div className="upload-panel">
         <div className="upload-icon">
           <CloudUpload size={35} />
@@ -2092,14 +2092,14 @@ function Upload({
             onClick={() => albumInput.current?.click()}
           >
             <Images size={18} />
-            从相册选择
+            {files.length ? "重新选择" : "从相册选择"}
           </button>
           <button
             className="secondary"
             onClick={() => importInput.current?.click()}
           >
             <FolderOpen size={18} />
-            导入原件文件 / Live素材
+            {files.length ? "导入原件" : "导入原件文件 / Live素材"}
           </button>
         </div>
         <input
@@ -2142,11 +2142,11 @@ function Upload({
                 {previewURLs[i] && !previewFailed.includes(i) ?
                   <img src={previewURLs[i]} alt={`待上传预览 ${f.name}`} onError={() => setPreviewFailed((current) => [...current, i])}/> :
                   <div className="upload-preview-fallback"><Images size={25}/><span>当前格式暂不支持预览，仍可上传原件</span></div>}
+                <div className="upload-preview-meta"><strong>{f.name}</strong><small>{formatBytes(f.size)}</small></div>
                 <div className="upload-preview-fields">
-                  <strong>{f.name}</strong><small>{formatBytes(f.size)}</small>
                   <label>标题<input maxLength={80} value={drafts[i]?.title || ""} onChange={(event) => setDrafts((current) => ({ ...current, [i]: { ...(current[i] || { title: "", date: "", place: "" }), title: event.target.value } }))} placeholder="给这张照片起个名字"/></label>
                   <label>拍摄时间<input type="datetime-local" value={drafts[i]?.date || ""} onChange={(event) => setDrafts((current) => ({ ...current, [i]: { ...(current[i] || { title: "", date: "", place: "" }), date: event.target.value } }))}/></label>
-                  <label>地点<input maxLength={120} value={drafts[i]?.place || ""} onChange={(event) => setDrafts((current) => ({ ...current, [i]: { ...(current[i] || { title: "", date: "", place: "" }), place: event.target.value } }))} placeholder="例如：东京"/></label>
+                  <label>地点<input maxLength={120} value={drafts[i]?.place || ""} onChange={(event) => setDrafts((current) => ({ ...current, [i]: { ...(current[i] || { title: "", date: "", place: "" }), place: event.target.value } }))}/></label>
                 </div>
               </div>
             ))}
@@ -2184,7 +2184,7 @@ function Upload({
               checked={shared}
               onChange={(e) => setShared(e.target.checked)}
             />
-            上传后放入共享相册（所有家庭成员可查看和下载）
+            上传后放入共享相册
           </label>
           <div className="selection-actions">
             <button className="primary" onClick={enqueue}>

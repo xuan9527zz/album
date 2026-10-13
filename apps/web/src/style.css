@@ -702,21 +702,23 @@ progress::-moz-progress-bar {
 .chat-compose .primary { min-width: 48px; padding: 10px; }
 .push-button { margin: 0 18px 12px; font-size: 12px; min-height: 40px; }
 .push-status { padding: 0 18px 14px; font-size: 12px; color: #61776b; }
-.selected-files.upload-previews { max-height: none; display: grid; gap: 16px; }
-.upload-preview-card { display: grid !important; grid-template-columns: 160px minmax(0,1fr); gap: 18px !important; align-items: start !important; padding: 16px !important; background: #fff; border: 1px solid #e2e8df; border-radius: 16px; color: #263c36 !important; }
-.upload-preview-card > img, .upload-preview-fallback { width: 160px; height: 160px; object-fit: cover; border-radius: 12px; background: #e9eee7; }
+.selected-files.upload-previews { max-height: none; display: grid; gap: 16px; overflow: visible; }
+.selected-files > .upload-preview-card { display: grid; grid-template-columns: 160px minmax(0,1fr); grid-template-areas: "image meta" "image fields"; gap: 8px 18px; align-items: start; min-width: 0; padding: 16px; background: #fff; border: 1px solid #e2e8df; border-radius: 16px; color: #263c36; }
+.upload-preview-card > img, .upload-preview-fallback { grid-area: image; width: 160px; height: 160px; object-fit: cover; border-radius: 12px; background: #e9eee7; }
 .upload-preview-fallback { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 6px; color: #829489; text-align: center; padding: 12px; }
 .upload-preview-fallback span { font-size: 10px; }
-.upload-preview-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px 12px; width: 100%; }
-.upload-preview-fields strong { grid-column: 1 / -1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.upload-preview-fields small { grid-column: 1 / -1; font-size: 11px; }
-.upload-preview-fields label { margin: 0; color: #627669; font-size: 12px; }
+.upload-preview-meta { grid-area: meta; display: flex; justify-content: space-between; gap: 12px; align-items: baseline; min-width: 0; width: 100%; }
+.upload-preview-meta strong { min-width: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upload-preview-meta small { flex-shrink: 0; font-size: 11px; white-space: nowrap; }
+.upload-preview-fields { grid-area: fields; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px 12px; min-width: 0; width: 100%; }
+.upload-preview-fields label { min-width: 0; margin: 0; color: #627669; font-size: 12px; }
 .upload-preview-fields label:first-of-type { grid-column: 1 / -1; }
-.upload-preview-fields input { min-height: 40px; padding: 8px 10px; margin-top: 5px; }
+.upload-preview-fields input { display: block; min-width: 0; width: 100%; min-height: 40px; padding: 8px 10px; margin-top: 5px; }
 @media (max-width: 800px) {
   .message-grid { grid-template-columns: 1fr; }
-  .upload-preview-card { grid-template-columns: 94px minmax(0,1fr); gap: 12px !important; padding: 11px !important; }
-  .upload-preview-card > img, .upload-preview-fallback { width: 94px; height: 94px; }
+  .selected-files > .upload-preview-card { grid-template-columns: 72px minmax(0,1fr); grid-template-areas: "image meta" "fields fields"; gap: 10px 12px; padding: 12px; }
+  .upload-preview-card > img, .upload-preview-fallback { width: 72px; height: 72px; }
+  .upload-preview-meta { flex-direction: column; align-items: flex-start; justify-content: center; gap: 4px; height: 72px; }
   .upload-preview-fields { grid-template-columns: 1fr; }
   .upload-preview-fields label:first-of-type { grid-column: auto; }
 }
@@ -973,6 +975,11 @@ progress::-moz-progress-bar {
   line-height: 1.9 !important;
   color: #9a9d8d !important;
 }
+.has-selection .upload-panel { margin-top: 14px; padding: 0; border: 0; background: transparent; text-align: left; }
+.has-selection .upload-icon, .has-selection .upload-panel h2, .has-selection .upload-panel > p { display: none; }
+.has-selection .upload-options { justify-content: flex-start; margin: 0; gap: 10px; }
+.has-selection .upload-options button { min-height: 40px; padding: 8px 14px; font-size: 13px; }
+.has-selection .selection-panel { margin-top: 14px; }
 .upload-settings {
   display: flex;
   justify-content: space-between;
@@ -1665,6 +1672,10 @@ progress::-moz-progress-bar {
   .upload-options button {
     font-size: 12px;
   }
+  .upload-page.has-selection h1 { font-size: 25px; }
+  .has-selection .upload-options { flex-direction: row; max-width: none; margin: 0; gap: 8px; }
+  .has-selection .upload-options button { flex: 1; min-width: 0; gap: 6px; padding: 8px; font-size: 12px; }
+  .has-selection .selection-panel { padding: 16px 12px; }
   .upload-settings {
     align-items: flex-start;
   }
