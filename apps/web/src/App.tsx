@@ -961,7 +961,13 @@ function PrivateImage({
         if (live) setSrc(imageURL);
       }).catch((error) => {
         if (!live) return;
-        console.warn("IMAGE_LOAD_FAILED", error instanceof Error ? error.message : "unknown");
+        const sourceURL = url ? new URL(url) : null;
+        console.warn("IMAGE_LOAD_FAILED", error instanceof Error ? error.message : "unknown", {
+          origin: sourceURL?.origin,
+          path: sourceURL?.pathname,
+          hasTarget: sourceURL?.searchParams.has("target"),
+          length: url?.length,
+        });
         if (attempt < 1) {
           setAttempt(1);
           void retryRef.current();
