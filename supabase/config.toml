@@ -1,0 +1,3 @@
+[functions.album-gateway]
+entrypoint = "./functions/album-gateway/index.js"
+verify_jwt = false
