@@ -1,12 +1,12 @@
 # 从零部署
 
-独立 Supabase `album` 项目已按顺序执行五次迁移，最新为 `202610130004_messages_likes_titles_push.sql`，并关闭公众注册和匿名登录。Cloudflare `family-album` 私有桶已设置 CORS，Worker 与 Pages 已部署；合成素材云端冒烟测试通过。四位成员均已建立，邀请邮件已发送；真实设备验收仍待完成。以下步骤用于核对并继续部署，不复用其他网站的账号或数据库。不要把真实密钥提交到 Git 或聊天记录。
+独立 Supabase `album` 项目已按顺序执行六次迁移，最新为 `202610140001_story_albums.sql`，并关闭公众注册和匿名登录。Cloudflare `family-album` 私有桶已设置 CORS，Worker 与 Pages 已部署；合成素材云端冒烟测试通过。四位成员均已建立，邀请邮件已发送；真实设备验收仍待完成。以下步骤用于核对并继续部署，不复用其他网站的账号或数据库。不要把真实密钥提交到 Git 或聊天记录。
 
 ## 1. Supabase
 
-项目 `nqjdngemhgmahqjuuxwx` 已在 SQL Editor 执行五份迁移，**不要重复执行**。最新的 `202610130004_messages_likes_titles_push.sql` 于 2026-10-13 执行成功，新增独立照片标题、个人点赞、群聊、消息与推送订阅及 `album_v5_action`，未自动共享已有照片。发布顺序为**先运行迁移，再部署 Worker，最后部署 Pages**。`profiles`、`photos`、`photo_assets`、`photo_comments` 及新消息表的 RLS 和函数权限仍应定期审计；anon 无业务读取权限，`authenticated` 只有本人且非最近删除的照片 SELECT；评论、点赞和聊天通过已鉴权的 Worker 与仅 service role 可执行的 RPC 访问。现有照片默认不共享。
+项目 `nqjdngemhgmahqjuuxwx` 已在 SQL Editor 执行六份迁移，**不要重复执行**。`202610130004_messages_likes_titles_push.sql` 新增独立照片标题、个人点赞、群聊、消息与推送订阅及 `album_v5_action`，未自动共享已有照片。发布顺序为**先运行迁移，再部署 Worker，最后部署 Pages**。`profiles`、`photos`、`photo_assets`、`photo_comments` 及新消息表的 RLS 和函数权限仍应定期审计；anon 无业务读取权限，`authenticated` 只有本人且非最近删除的照片 SELECT；评论、点赞和聊天通过已鉴权的 Worker 与仅 service role 可执行的 RPC 访问。现有照片默认不共享。
 
-待发布的影集功能对应 `202610140001_story_albums.sql`。它只新增影集及有序照片引用表和 `album_v6_action`，不复制、移动或共享现有照片；新影集默认仅创建者可见。正式环境必须先执行这份迁移，确认函数可用，再部署新版 Worker，最后部署 Pages。不要先发布影集前端，否则页面会出现“服务暂时不可用”。回滚 Worker 或网页时保留已应用的迁移与影集记录。
+影集迁移 `202610140001_story_albums.sql` 于 2026-10-14 执行成功，新增影集及有序照片引用表和 `album_v6_action`，不复制、移动或共享现有照片；新影集默认仅创建者可见。正式 RPC 用非成员参数返回 `NOT_MEMBER`，确认函数可用；之后新版 Worker 与 Pages #18 按序发布。回滚 Worker 或网页时保留已应用的迁移与影集记录。
 
 Auth 的公众注册与匿名登录已关闭，刷新设置页后再次核对；账号由管理员控制台或受控脚本建立，最多启用四个成员。首位成员 `xuan` 已用管理员控制台创建并在正式站点登录、上传一张照片。之后可用 `npm run invite -- 家人邮箱 昵称` 生成私密邀请链接，让受邀人自己设置密码；具体发送与清理步骤见 [维护说明](OPERATIONS.md)。Supabase 的前端 publishable key 可公开；后台 secret key 已在本机私密环境验证管理员接口，后续只能放在 Worker secrets 和本地私密环境中。[Supabase Auth](https://supabase.com/docs/guides/auth)、[API keys](https://supabase.com/docs/guides/getting-started/api-keys)、[RLS](https://supabase.com/docs/guides/database/postgres/row-level-security)。
 
@@ -16,7 +16,7 @@ Auth 的公众注册与匿名登录已关闭，刷新设置页后再次核对；
 
 ## 3. Worker
 
-`apps/api/wrangler.toml` 已设置正式前端 origin `https://xuan9527zz.github.io`，并列出必须存在的 Worker secrets：`SUPABASE_URL`、`SUPABASE_PUBLISHABLE_KEY`、`SUPABASE_SECRET_KEY`、`R2_ACCOUNT_ID`、`R2_BUCKET_NAME`、`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY`、`VAPID_PUBLIC_KEY`、`VAPID_PRIVATE_KEY` 和 `VAPID_SUBJECT`。密钥只保存在本机 Git 忽略的 `apps/api/.dev.vars` 和 Cloudflare Worker secrets，不通过聊天、命令行参数或 Git 提交。当前 Worker URL 为 `https://family-album-api.xuan1996wyx.workers.dev`，已部署版本 `c0c3c267-d3f7-49f8-a370-6198188c6295`，每 6 小时执行一次到期清理。
+`apps/api/wrangler.toml` 已设置正式前端 origin `https://xuan9527zz.github.io`，并列出必须存在的 Worker secrets：`SUPABASE_URL`、`SUPABASE_PUBLISHABLE_KEY`、`SUPABASE_SECRET_KEY`、`R2_ACCOUNT_ID`、`R2_BUCKET_NAME`、`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY`、`VAPID_PUBLIC_KEY`、`VAPID_PRIVATE_KEY` 和 `VAPID_SUBJECT`。密钥只保存在本机 Git 忽略的 `apps/api/.dev.vars` 和 Cloudflare Worker secrets，不通过聊天、命令行参数或 Git 提交。当前 Worker URL 为 `https://family-album-api.xuan1996wyx.workers.dev`，已部署版本 `4bad5e00-f437-4ff8-b4d1-5c793588780d`，每 6 小时执行一次到期清理。
 
 Worker 的 `/health` 返回 200，匿名 `/v1/photos` 返回 401；网关相同检查也通过。后续仅更新代码时可执行 `npm run deploy:api`，已有 secrets 会保留。[Deploy Worker #1](https://github.com/xuan9527zz/album/actions/runs/38361893577) 因仓库尚未设置 `CLOUDFLARE_API_TOKEN` 和 `CLOUDFLARE_ACCOUNT_ID` 而失败；本次改用本机已登录的 Wrangler 成功发布。不要把本机 OAuth 凭据复制到仓库。
 
