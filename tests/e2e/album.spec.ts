@@ -44,6 +44,8 @@ test("login, upload, original download, edit, batch, trash, restore, and account
     .locator(".upload-panel input[type=file]")
     .nth(1)
     .setInputFiles(path.resolve("tests/fixtures/landscape-0.png"));
+  await expect(page.getByAltText(/待上传预览 landscape-0.png/)).toBeVisible();
+  await page.getByLabel("标题").first().fill(`专属回忆-${testInfo.project.name}`);
   await page.getByLabel("上传后放入精选").check();
   await page.getByRole("button", { name: "开始保存" }).click();
   await expect(page.getByText("原件与浏览图片已保存").last()).toBeVisible({
@@ -62,7 +64,7 @@ test("login, upload, original download, edit, batch, trash, restore, and account
   expect(await readFile(await download.path())).toEqual(
     await readFile(path.resolve("tests/fixtures/landscape-0.png")),
   );
-  await page.getByRole("button", { name: "编辑日期与地点" }).click();
+  await page.getByRole("button", { name: "编辑标题、时间和地点" }).click();
   await page
     .getByLabel("地点", { exact: true })
     .fill(`专属回忆-${testInfo.project.name}`);
@@ -97,18 +99,18 @@ test("login, upload, original download, edit, batch, trash, restore, and account
   await page.reload();
   await expect(page.locator(".photo-card")).toHaveCount(3);
   await page.goto("/#/shared");
-  await expect(page.locator(".photo-card")).toHaveCount(1);
+  await expect(page.getByRole("link", { name: `打开照片 专属回忆-${testInfo.project.name}` })).toBeVisible();
   await page.getByLabel("筛选上传成员").selectOption("22222222-2222-4222-8222-222222222222");
   await expect(page.locator(".photo-card")).toHaveCount(0);
   await page.getByLabel("筛选上传成员").selectOption("11111111-1111-4111-8111-111111111111");
-  await expect(page.locator(".photo-card")).toHaveCount(1);
+  await expect(page.getByRole("link", { name: `打开照片 专属回忆-${testInfo.project.name}` })).toBeVisible();
   await page.getByRole("button", { name: "批量管理" }).click();
-  await expect(page.getByRole("button", { name: /选择照片/ })).toBeDisabled();
+  await expect(page.getByRole("button", { name: `选择照片 专属回忆-${testInfo.project.name}` })).toBeDisabled();
   await page.getByRole("button", { name: "完成选择" }).click();
-  await page.locator(".photo-card").click();
+  await page.getByRole("link", { name: `打开照片 专属回忆-${testInfo.project.name}` }).click();
   await expect(page.getByText("家庭成员可见")).toBeVisible();
   await expect(page.getByRole("button", { name: "删除照片", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "编辑日期与地点" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "编辑标题、时间和地点" })).toHaveCount(0);
   await page.getByRole("button", { name: "关闭照片" }).click();
   await page.goto("/#/me");
   await expect(page.getByLabel("显示昵称")).toHaveCount(0);
@@ -169,9 +171,54 @@ test("year, month, and location search reaches the whole album", async ({ page }
   await page.getByLabel("筛选月份").selectOption("9");
   await page.getByLabel("筛选地点").fill("远方的山");
   await expect(page.locator(".photo-card")).toHaveCount(1);
-  await expect(page.getByRole("link", { name: /远方的山/ })).toBeVisible();
+  await expect(page.locator(".photo-card")).toContainText("示例风景-10");
   await page.getByRole("button", { name: "清除筛选" }).click();
   await expect.poll(() => page.locator(".photo-card").count()).toBeGreaterThanOrEqual(12);
+});
+test("family likes, comments, messages, and personal featured stay separate", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "我的示例相册" }).click();
+  await page.goto("/#/all");
+  const sharedHref = await page.getByRole("link", { name: "打开照片 示例风景-0" }).getAttribute("href");
+  const sharedID = sharedHref!.split("/")[2];
+  await page.getByRole("link", { name: "打开照片 示例风景-0" }).click();
+  await expect(page.getByRole("button", { name: /放入共享相册|移出共享相册/ })).toBeVisible();
+  if (await page.getByRole("button", { name: "放入共享相册" }).isVisible())
+    await page.getByRole("button", { name: "放入共享相册" }).click();
+  await expect(page.getByRole("button", { name: "移出共享相册" })).toBeVisible();
+  await page.getByRole("button", { name: "关闭照片" }).click();
+  await page.goto("/#/me");
+  await page.getByRole("button", { name: "退出登录" }).click();
+  await page.getByRole("button", { name: "家人二的示例账号" }).click();
+  await page.goto("/#/shared");
+  await page.locator(`.photo-card[href='#/photo/${sharedID}/shared']`).click();
+  await expect(page.getByRole("button", { name: /点赞并加入我的精选|已点赞 · 已加入我的精选/ })).toBeVisible();
+  if (await page.getByRole("button", { name: /已点赞 · 已加入我的精选/ }).isVisible())
+    await page.getByRole("button", { name: /已点赞 · 已加入我的精选/ }).click();
+  await page.getByRole("button", { name: /点赞并加入我的精选/ }).click();
+  await expect(page.getByRole("button", { name: /已点赞 · 已加入我的精选/ })).toBeVisible();
+  await page.getByLabel("写评论").fill("真好看");
+  await page.getByRole("button", { name: "发布评论" }).click();
+  await page.getByRole("button", { name: "关闭照片" }).click();
+  await page.goto("/#/featured");
+  await expect(page.locator(`.photo-card[href='#/photo/${sharedID}/featured']`)).toBeVisible();
+  await page.goto("/#/messages");
+  await page.locator("#chat-message").fill("周末一起看照片");
+  await page.getByRole("button", { name: "发送消息" }).click();
+  await expect(page.getByText("周末一起看照片").last()).toBeVisible();
+  await page.goto("/#/me");
+  await page.getByRole("button", { name: "退出登录" }).click();
+  await page.getByRole("button", { name: "我的示例相册" }).click();
+  await page.goto("/#/messages");
+  await expect(page.getByText(/赞了你的共享照片/).first()).toBeVisible();
+  await expect(page.getByText(/评论了你的共享照片/).first()).toBeVisible();
+  await expect(page.getByText("周末一起看照片").first()).toBeVisible();
+  await expect(page.locator(".bottom-nav a[href='#/upload']")).toHaveCount(0);
+  await expect(page.locator(".topbar a[href='#/upload']")).toHaveCount(1);
+  await page.goto("/#/all");
+  await page.locator(`.photo-card[href='#/photo/${sharedID}/all']`).click();
+  await page.getByRole("button", { name: "移出共享相册" }).click();
+  await expect(page.getByRole("button", { name: "放入共享相册" })).toBeVisible();
 });
 test("photo detail swipes left to the previous image and right to the next", async ({ page }, testInfo) => {
   await page.goto("/");

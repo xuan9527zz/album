@@ -60,6 +60,7 @@ export const metadataSchema = z
       .nullable()
       .optional(),
     date_source: z.enum(["exif", "manual", "unknown"]).default("unknown"),
+    title: z.string().trim().max(80).nullable().optional(),
     location_label: z.string().max(120).nullable().optional(),
     latitude: z.number().min(-90).max(90).nullable().optional(),
     longitude: z.number().min(-180).max(180).nullable().optional(),
@@ -88,6 +89,7 @@ export const uploadSchema = z
 export const editSchema = z
   .object({
     captured_local: metadataSchema.shape.captured_local,
+    title: metadataSchema.shape.title,
     capture_offset_minutes: metadataSchema.shape.capture_offset_minutes,
     location_label: metadataSchema.shape.location_label,
     latitude: metadataSchema.shape.latitude,
@@ -115,6 +117,7 @@ export interface Asset {
 }
 export interface Photo {
   id: string;
+  title: string | null;
   captured_local: string | null;
   captured_utc: string | null;
   capture_offset_minutes: number | null;
@@ -128,6 +131,8 @@ export interface Photo {
   is_featured: boolean;
   is_shared: boolean;
   is_owner?: boolean;
+  liked_by_me?: boolean;
+  like_count?: number;
   owner_name?: string;
   original_status: string;
   preview_status: string;

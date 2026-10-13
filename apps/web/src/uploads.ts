@@ -103,10 +103,16 @@ export async function uploadPhoto(
   key: string,
   featured: boolean,
   shared: boolean,
+  details: { title: string; date: string; place: string },
   progress: (text: string, n: number) => void,
 ) {
   progress("读取拍摄信息与校验原件", 0);
   const meta = await metadata(file);
+  meta.title = details.title.trim() || null;
+  meta.captured_local = details.date || null;
+  meta.date_source = details.date ? "manual" : "unknown";
+  meta.location_label = details.place.trim() || null;
+  meta.location_source = details.place.trim() ? "manual" : "unknown";
   meta.is_featured = featured;
   const original = await specification(
     file,

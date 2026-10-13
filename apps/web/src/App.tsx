@@ -22,6 +22,9 @@ import {
   ChevronLeft,
   Leaf,
   WifiOff,
+  MessageCircle,
+  Bell,
+  Send,
 } from "lucide-react";
 import {
   type Photo,
@@ -30,6 +33,7 @@ import {
 } from "../../../packages/shared/src/index";
 import { auth, Client, configured, inviteMarker, localDemo } from "./client";
 import { cachedImage, clearImageCache, imageInSession } from "./session-image-cache";
+import { metadata as readPhotoMetadata } from "./files";
 import {
   addDerivatives,
   addLiveVideo,
@@ -58,6 +62,8 @@ type PhotoComment = {
   author_name: string;
   can_delete: boolean;
 };
+type Notice = { id: string; kind: "comment" | "like" | "chat"; photo_id: string | null; created_at: string; read_at: string | null; actor_name: string; photo_title: string | null };
+type ChatMessage = { id: string; body: string; created_at: string; sender_id: string; sender_name: string };
 function Logo() {
   return (
     <span className="logo-symbol">
@@ -380,6 +386,7 @@ function Album({
   const [me, setMe] = useState<any>(null);
   const [memberError, setMemberError] = useState("");
   const [revision, setRevision] = useState(0);
+  const [unread, setUnread] = useState(0);
   const navigationLists = useRef<Record<"featured" | "all" | "shared", string[]>>({
     featured: [], all: [], shared: [],
   });
@@ -398,6 +405,20 @@ function Album({
       client.stop();
     };
   }, [client]);
+  useEffect(() => {
+    let live = true;
+    const refreshUnread = async () => {
+      if (document.hidden) return;
+      try {
+        const result = await client.request<{ unread_count: number }>("/v1/notifications");
+        if (live) setUnread(result.unread_count);
+      } catch { /* The inbox will retry when the app is active. */ }
+    };
+    void refreshUnread();
+    const timer = window.setInterval(refreshUnread, 30000);
+    document.addEventListener("visibilitychange", refreshUnread);
+    return () => { live = false; window.clearInterval(timer); document.removeEventListener("visibilitychange", refreshUnread); };
+  }, [client]);
   const refresh = () => {
     setRevision((n) => n + 1);
     client
@@ -406,6 +427,14 @@ function Album({
       .catch(() => {});
   };
   const exit = async () => {
+    try {
+      if (localDemo || !("serviceWorker" in navigator)) throw new Error("no push");
+      const subscription = await (await navigator.serviceWorker.ready).pushManager.getSubscription();
+      if (subscription) {
+        await client.request("/v1/push/subscription", { endpoint: subscription.endpoint }, "DELETE");
+        await subscription.unsubscribe();
+      }
+    } catch { /* Logging out still works when the device is offline. */ }
     client.stop();
     await logout();
   };
@@ -415,6 +444,8 @@ function Album({
       ? "shared"
     : route.startsWith("/trash")
       ? "trash"
+    : route.startsWith("/messages")
+      ? "messages"
     : route.startsWith("/upload")
       ? "upload"
       : route.startsWith("/me")
@@ -445,7 +476,7 @@ function Album({
     { key: "featured", icon: Heart, name: "精选时光" },
     { key: "all", icon: Images, name: "全部照片" },
     { key: "shared", icon: UsersRound, name: "共享相册" },
-    { key: "upload", icon: Plus, name: "添加照片" },
+    { key: "messages", icon: MessageCircle, name: "消息" },
     { key: "me", icon: UserRound, name: "我的" },
   ];
   return (
@@ -464,6 +495,7 @@ function Album({
             >
               <n.icon size={20} />
               {n.name}
+              {n.key === "messages" && unread > 0 && <span className="unread-badge">{unread > 99 ? "99+" : unread}</span>}
               {n.key === "featured" && <span className="nav-dot" />}
             </a>
           ))}
@@ -512,6 +544,7 @@ function Album({
             />
           ) : null}
           {tab === "trash" && <TrashPage key={revision} client={client} onChange={refresh} />}
+          {tab === "messages" && <MessagesPage client={client} userID={userID} onRead={() => setUnread(0)} />}
           <div hidden={tab !== "upload"}>
             <Upload client={client} onChange={refresh} />
           </div>
@@ -526,6 +559,7 @@ function Album({
             className={tab === n.key ? "active" : ""}
           >
             <n.icon size={21} />
+            {n.key === "messages" && unread > 0 && <span className="bottom-unread">{unread > 9 ? "9+" : unread}</span>}
             <span>
               {n.key === "featured"
                 ? "精选"
@@ -533,8 +567,8 @@ function Album({
                   ? "全部"
                   : n.key === "shared"
                     ? "共享"
-                  : n.key === "upload"
-                    ? "上传"
+                  : n.key === "messages"
+                    ? "消息"
                     : "我的"}
             </span>
           </a>
@@ -552,6 +586,99 @@ function Album({
       )}
     </div>
   );
+}
+function MessagesPage({ client, userID, onRead }: { client: Client; userID: string; onRead: () => void }) {
+  const [notices, setNotices] = useState<Notice[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [pushState, setPushState] = useState("" );
+  const bottom = useRef<HTMLDivElement>(null);
+  async function load() {
+    try {
+      const [inbox, chat] = await Promise.all([
+        client.request<{ items: Notice[]; unread_count: number }>("/v1/notifications"),
+        client.request<{ messages: ChatMessage[] }>("/v1/chat"),
+      ]);
+      setNotices(inbox.items);
+      setMessages(chat.messages);
+      if (inbox.unread_count) {
+        await client.request("/v1/notifications/read", {});
+        onRead();
+      }
+    } catch (e) { setError(errorText(e)); }
+  }
+  useEffect(() => {
+    void load();
+    const timer = window.setInterval(() => { if (!document.hidden) void load(); }, 15000);
+    return () => window.clearInterval(timer);
+  }, [client]);
+  useEffect(() => { bottom.current?.scrollIntoView({ block: "nearest" }); }, [messages.length]);
+  async function send(event: FormEvent) {
+    event.preventDefault();
+    const body = text.trim();
+    if (!body || Array.from(body).length > 300) return;
+    setBusy(true); setError("");
+    try {
+      const sent = await client.request<ChatMessage>("/v1/chat", { body });
+      setMessages((current) => [...current, sent]);
+      setText("");
+    } catch (e) { setError(errorText(e)); }
+    finally { setBusy(false); }
+  }
+  async function enablePush() {
+    setPushState("正在开启通知…");
+    try {
+      if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window))
+        throw new Error("当前浏览器不支持锁屏推送。iPhone 请先用 Safari 将相册添加到主屏幕，再从主屏幕打开。");
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") throw new Error("系统未允许通知，可在 iPhone 设置中重新开启");
+      const key = await client.request<{ public_key: string | null }>("/v1/push/key");
+      if (!key.public_key) throw new Error("推送服务尚未启用，请稍后重试");
+      const reg = await navigator.serviceWorker.ready;
+      let subscription = await reg.pushManager.getSubscription();
+      if (!subscription) {
+        const raw = key.public_key.replace(/-/g, "+").replace(/_/g, "/");
+        const bytes = Uint8Array.from(atob(raw.padEnd(Math.ceil(raw.length / 4) * 4, "=")), (char) => char.charCodeAt(0));
+        subscription = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes.buffer });
+      }
+      const json = subscription.toJSON();
+      await client.request("/v1/push/subscription", { endpoint: json.endpoint, keys: json.keys });
+      setPushState("已开启锁屏推送");
+    } catch (e) { setPushState(errorText(e)); }
+  }
+  return <section className="messages-page">
+    <div className="gallery-heading"><div><p className="eyebrow">FAMILY NOTES</p><h1>消息</h1><p>家人的互动和群聊都在这里。</p></div></div>
+    <div className="message-grid">
+      <section className="message-panel" aria-label="照片互动通知">
+        <header><Bell size={20}/><h2>照片动态</h2></header>
+        {notices.filter((notice) => notice.kind !== "chat").length ?
+          <div className="notice-list">{notices.filter((notice) => notice.kind !== "chat").map((notice) =>
+            <a key={notice.id} className={`notice-item${notice.read_at ? "" : " unread"}`} href={`#/photo/${notice.photo_id}/shared`}>
+              <span className="notice-icon">{notice.kind === "like" ? <Heart size={18}/> : <MessageCircle size={18}/>}</span>
+              <span><strong>{notice.actor_name}{notice.kind === "like" ? "赞了" : "评论了"}你的共享照片</strong><small>{notice.photo_title || "查看照片"} · {new Date(notice.created_at).toLocaleString("zh-CN")}</small></span>
+              <ChevronRight size={16}/>
+            </a>)}</div> : <p className="message-empty">有新评论或点赞时，会在这里提醒你。</p>}
+      </section>
+      <section className="message-panel chat-panel" aria-label="家庭群聊">
+        <header><UsersRound size={20}/><h2>家庭群聊</h2></header>
+        <div className="chat-list">{messages.length ? messages.map((message) =>
+          <article className={`chat-bubble${message.sender_id === userID ? " mine" : ""}`} key={message.id}>
+            <small>{message.sender_name} · {new Date(message.created_at).toLocaleString("zh-CN")}</small>
+            <p>{message.body}</p>
+          </article>) : <p className="message-empty">给家人发第一条消息吧。</p>}<div ref={bottom}/></div>
+        <form className="chat-compose" onSubmit={send}>
+          <label className="sr-only" htmlFor="chat-message">发送消息</label>
+          <input id="chat-message" value={text} maxLength={300} onChange={(event) => setText(event.target.value)} placeholder="发一条消息给家人" />
+          <button className="primary" disabled={busy || !text.trim()} aria-label="发送消息"><Send size={18}/></button>
+        </form>
+        <button className="secondary push-button" type="button" onClick={() => void enablePush()}><Bell size={17}/> 开启锁屏推送</button>
+        {pushState && <p className="push-status" role="status">{pushState}</p>}
+      </section>
+    </div>
+    {error && <p className="error" role="alert">{error}</p>}
+  </section>;
 }
 function Gallery({ client, mode, onVisible }: { client: Client; mode: "featured" | "all" | "shared"; onVisible: (mode: "featured" | "all" | "shared", ids: string[]) => void }) {
   const featured = mode === "featured";
@@ -766,9 +893,7 @@ function Gallery({ client, mode, onVisible }: { client: Client; mode: "featured"
             {hasFilters ? "试试更换年份、月份、地点或成员。" : featured ? "可以在照片详情中加入精选。" : shared ? "上传时选择共享，或分享自己已有的照片。" : "从这里开始添加照片。"}
           </p>
           {hasFilters ? <button className="primary" onClick={clearFilters}>清除筛选</button>
-            : <a className="primary" href={featured ? "#/all" : "#/upload"}>
-              {featured ? "查看全部照片" : "添加照片"}<ArrowUpRight size={18} />
-            </a>}
+            : featured ? <a className="primary" href="#/all">查看全部照片<ArrowUpRight size={18} /></a> : null}
         </div>
       )}
       {groups.map(([month, items]) => (
@@ -789,7 +914,7 @@ function Gallery({ client, mode, onVisible }: { client: Client; mode: "featured"
                       <PrivateImage
                         assetID={asset.id}
                         url={urls[asset.id]}
-                        alt={p.location_label || "相册照片"}
+                        alt={p.title || "相册照片"}
                         eager={index < 4}
                         retry={() => authorize([p])}
                       />
@@ -805,7 +930,7 @@ function Gallery({ client, mode, onVisible }: { client: Client; mode: "featured"
                         </span>
                       </div>
                     )}
-                    {p.is_featured && (
+                    {(p.is_featured || p.liked_by_me) && (
                       <span className="featured-badge">
                         <Heart size={14} fill="currentColor" />
                       </span>
@@ -816,7 +941,7 @@ function Gallery({ client, mode, onVisible }: { client: Client; mode: "featured"
                     {selecting && selected.includes(p.id) && <span className="selection-badge"><Check size={19} /></span>}
                   </div>
                   <div className="photo-caption">
-                    <span>{p.location_label || "一个日常瞬间"}</span>
+                    <span>{p.title || "未命名照片"}</span>
                     <ArrowUpRight size={16} />
                     <small>{dateText(p)}{shared && p.owner_name ? ` · ${p.owner_name}` : ""}</small>
                   </div>
@@ -825,7 +950,7 @@ function Gallery({ client, mode, onVisible }: { client: Client; mode: "featured"
                 <button type="button" className={`photo-card selectable${selected.includes(p.id) ? " selected" : ""}`}
                   key={p.id} disabled={shared && p.is_owner === false}
                   aria-pressed={selected.includes(p.id)}
-                  aria-label={`选择照片 ${p.location_label || dateText(p)}`}
+                  aria-label={`选择照片 ${p.title || dateText(p)}`}
                   onClick={() => {
                     if (!selected.includes(p.id) && selected.length >= 50) {
                       setError("每次最多选择 50 张，请先处理已选照片。");
@@ -837,7 +962,7 @@ function Gallery({ client, mode, onVisible }: { client: Client; mode: "featured"
                 </button>
               ) : (
                 <a className="photo-card" key={p.id} href={`#/photo/${p.id}/${mode}`}
-                  aria-label={`打开照片 ${p.location_label || dateText(p)}`}>{cardBody}</a>
+                  aria-label={`打开照片 ${p.title || dateText(p)}`}>{cardBody}</a>
               );
             })}
           </div>
@@ -915,7 +1040,7 @@ function TrashPage({ client, onChange }: { client: Client; onChange: () => void 
         <div className="trash-image">{asset && (urls[asset.id] || cachedImage(asset.id)) ?
           <PrivateImage assetID={asset.id} url={urls[asset.id]} alt="" retry={async () => { await load(); }} /> : <Images size={28} />}</div>
         <div className="trash-card-body">
-          <strong>{p.location_label || dateText(p)}</strong>
+          <strong>{p.title || dateText(p)}</strong>
           <small>{remaining ? `还可恢复 ${remaining} 天` : "即将清理"}</small>
           <div className="trash-actions">
             <button className="secondary" disabled={busyID !== null || remaining === 0} onClick={() => void act(p.id, "restore")}>恢复</button>
@@ -1014,6 +1139,7 @@ function Detail({
   const [error, setError] = useState("");
   const [editing, setEditing] = useState(false);
   const [date, setDate] = useState("");
+  const [title, setTitle] = useState("");
   const [place, setPlace] = useState("");
   const [busy, setBusy] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -1097,6 +1223,7 @@ function Detail({
     const p = await client.request<Photo & { preview_grant?: { url: string } }>(`/v1/photos/${photoID}`);
     setPhoto(p);
     setDate(p.captured_local?.slice(0, 16) || "");
+    setTitle(p.title || "");
     setPlace(p.location_label || "");
     const a = p.assets.find((x) => x.role === "preview");
     if (p.preview_grant) setURL(p.preview_grant.url);
@@ -1113,6 +1240,7 @@ function Detail({
         if (!live) return;
         setPhoto(p);
         setDate(p.captured_local?.slice(0, 16) || "");
+        setTitle(p.title || "");
         setPlace(p.location_label || "");
         const a = p.assets.find((x) => x.role === "preview");
         if (p.preview_grant) setURL(p.preview_grant.url);
@@ -1191,7 +1319,7 @@ function Detail({
       setPhoto(
         await client.request(
           `/v1/photos/${photoID}`,
-          { captured_local: date || null, location_label: place || null },
+          { title: title.trim() || null, captured_local: date || null, location_label: place.trim() || null },
           "PATCH",
         ),
       );
@@ -1314,7 +1442,7 @@ function Detail({
             <PrivateImage
               assetID={photo.assets.find((a) => a.role === "preview")!.id}
               url={url}
-              alt={photo?.location_label || "照片预览"}
+              alt={photo?.title || "照片预览"}
               eager
               retry={load}
             />
@@ -1332,7 +1460,7 @@ function Detail({
         </div>
         <div className="detail-info">
           <p className="eyebrow">A MOMENT TO KEEP</p>
-          <h2>{photo?.location_label || "一个值得记住的瞬间"}</h2>
+          <h2>{photo?.title || "未命名照片"}</h2>
           {photo && (
             <>
               <div className="detail-meta">
@@ -1360,6 +1488,7 @@ function Detail({
               </p>
               {editing ? (
                 <form className="edit-form" onSubmit={edit}>
+                  <label>标题<input value={title} maxLength={80} onChange={(e) => setTitle(e.target.value)} placeholder="给照片起个名字" /></label>
                   <label>
                     拍摄时间（当地时间）
                     <input
@@ -1374,7 +1503,7 @@ function Detail({
                       value={place}
                       maxLength={120}
                       onChange={(e) => setPlace(e.target.value)}
-                      placeholder="例如：海边的一次散步"
+                      placeholder="例如：海边"
                     />
                   </label>
                   <button className="primary" disabled={busy}>
@@ -1390,6 +1519,15 @@ function Detail({
                 </form>
               ) : (
                 <div className="detail-actions">
+                  {photo.is_shared && <button className={`feature-toggle ${photo.liked_by_me ? "selected" : ""}`} disabled={busy}
+                    onClick={() => action(async () => {
+                      setPhoto(await client.request(`/v1/photos/${photoID}/like`, { liked: !photo.liked_by_me }));
+                      onChange();
+                    })}>
+                    <Heart size={19} fill={photo.liked_by_me ? "currentColor" : "none"}/>
+                    {photo.liked_by_me ? "已点赞 · 已加入我的精选" : "点赞并加入我的精选"}
+                    <span className="like-count">{photo.like_count || 0}</span>
+                  </button>}
                   {photo.is_owner !== false && <button
                     className={`feature-toggle ${photo.is_featured ? "selected" : ""}`}
                     disabled={busy}
@@ -1416,7 +1554,7 @@ function Detail({
                     className="secondary"
                     onClick={() => setEditing(true)}
                   >
-                    编辑日期与地点
+                    编辑标题、时间和地点
                   </button>}
                   {photo.is_owner !== false && <button
                     className="secondary"
@@ -1736,6 +1874,7 @@ interface Job {
   provenance: "browser_selected" | "file_imported";
   featured: boolean;
   shared: boolean;
+  details: { title: string; date: string; place: string };
   state: "waiting" | "working" | "done" | "failed";
   message: string;
   progress: number;
@@ -1748,6 +1887,10 @@ function Upload({
   onChange: () => void;
 }) {
   const [files, setFiles] = useState<File[]>([]);
+  const [drafts, setDrafts] = useState<Record<number, { title: string; date: string; place: string }>>({});
+  const [previewURLs, setPreviewURLs] = useState<Record<number, string>>({});
+  const [previewFailed, setPreviewFailed] = useState<number[]>([]);
+  const selectionVersion = useRef(0);
   const [provenance, setProvenance] =
     useState<Job["provenance"]>("browser_selected");
   const [pairs, setPairs] = useState<Record<string, string>>({});
@@ -1767,6 +1910,13 @@ function Upload({
   );
   const pictures = files.filter((f) => !/\.(mov|mp4)$/i.test(f.name));
   const videos = files.filter((f) => /\.(mov|mp4)$/i.test(f.name));
+  useEffect(() => {
+    const urls: Record<number, string> = {};
+    pictures.forEach((file, index) => { urls[index] = URL.createObjectURL(file); });
+    setPreviewURLs(urls);
+    setPreviewFailed([]);
+    return () => Object.values(urls).forEach((url) => URL.revokeObjectURL(url));
+  }, [files]);
   async function loadPending() {
     const ids = journal(client);
     const results = await Promise.all(
@@ -1792,7 +1942,17 @@ function Upload({
       setError("每次最多选择100个文件");
       return;
     }
-    setFiles(Array.from(list));
+    const selected = Array.from(list);
+    const version = ++selectionVersion.current;
+    setFiles(selected);
+    setDrafts({});
+    void Promise.all(selected.filter((file) => !/\.(mov|mp4)$/i.test(file.name)).map(readPhotoMetadata))
+      .then((found) => {
+        if (selectionVersion.current !== version) return;
+        setDrafts(Object.fromEntries(found.map((meta, index) => [index, {
+          title: "", date: meta.captured_local?.slice(0, 16) || "", place: meta.location_label || "",
+        }])));
+      });
     setPairs({});
     setProvenance(p);
     setError("");
@@ -1820,12 +1980,14 @@ function Upload({
         provenance,
         featured,
         shared,
+        details: drafts[pictures.indexOf(file)] || { title: "", date: "", place: "" },
         state: "waiting" as const,
         message: "等待上传",
         progress: 0,
       })),
     ]);
     setFiles([]);
+    ++selectionVersion.current;
     setPairs({});
   }
   useEffect(() => {
@@ -1852,6 +2014,7 @@ function Upload({
         job.id,
         job.featured,
         job.shared,
+        job.details,
         update,
       )
         .then(() => {
@@ -1973,12 +2136,18 @@ function Upload({
             已选择 {pictures.length} 张照片
             {videos.length ? ` + ${videos.length} 个配套视频` : ""}
           </h3>
-          <div className="selected-files">
+          <div className="selected-files upload-previews">
             {pictures.map((f, i) => (
-              <div key={i}>
-                <Images size={17} />
-                <span>{f.name}</span>
-                <small>{formatBytes(f.size)}</small>
+              <div className="upload-preview-card" key={i}>
+                {previewURLs[i] && !previewFailed.includes(i) ?
+                  <img src={previewURLs[i]} alt={`待上传预览 ${f.name}`} onError={() => setPreviewFailed((current) => [...current, i])}/> :
+                  <div className="upload-preview-fallback"><Images size={25}/><span>当前格式暂不支持预览，仍可上传原件</span></div>}
+                <div className="upload-preview-fields">
+                  <strong>{f.name}</strong><small>{formatBytes(f.size)}</small>
+                  <label>标题<input maxLength={80} value={drafts[i]?.title || ""} onChange={(event) => setDrafts((current) => ({ ...current, [i]: { ...(current[i] || { title: "", date: "", place: "" }), title: event.target.value } }))} placeholder="给这张照片起个名字"/></label>
+                  <label>拍摄时间<input type="datetime-local" value={drafts[i]?.date || ""} onChange={(event) => setDrafts((current) => ({ ...current, [i]: { ...(current[i] || { title: "", date: "", place: "" }), date: event.target.value } }))}/></label>
+                  <label>地点<input maxLength={120} value={drafts[i]?.place || ""} onChange={(event) => setDrafts((current) => ({ ...current, [i]: { ...(current[i] || { title: "", date: "", place: "" }), place: event.target.value } }))} placeholder="例如：东京"/></label>
+                </div>
               </div>
             ))}
           </div>
@@ -2022,7 +2191,7 @@ function Upload({
               开始保存
               <ArrowUpRight size={17} />
             </button>
-            <button className="quiet" onClick={() => setFiles([])}>
+            <button className="quiet" onClick={() => { ++selectionVersion.current; setFiles([]); }}>
               取消选择
             </button>
           </div>

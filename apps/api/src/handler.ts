@@ -15,6 +15,8 @@ export interface Dependencies {
   origins: string[];
   uploadTTL: number;
   readTTL: number;
+  vapidPublicKey?: string;
+  push?: (deliveries: Array<{ endpoint: string; p256dh: string; auth: string; kind: string; actor_name: string; photo_id: string | null }>) => void;
 }
 const id = z.string().uuid();
 const publicErrors: Record<string, [number, string]> = {
@@ -132,6 +134,17 @@ export function createHandler(d: Dependencies) {
           p_action: action,
           p_data: data,
         });
+      const callV5 = (action: string, data: unknown = {}) =>
+        d.db.call("album_v5_action", {
+          p_owner: owner,
+          p_action: action,
+          p_data: data,
+        });
+      const pushEvent = async (sourceID: string) => {
+        if (!d.push) return;
+        try { d.push(await callV5("push_event", { source_id: sourceID })); }
+        catch { /* A failed push must not undo a saved comment, like, or message. */ }
+      };
       const signedPreviews = async (photos: any[], trashed = false, detail = false) => {
         const ids = photos.map((p) => detail
           ? p.assets.find((a: any) => a.role === "preview")?.id
@@ -180,6 +193,37 @@ export function createHandler(d: Dependencies) {
         return response(await callV3("summary"));
       if (path === "/v1/members" && request.method === "GET")
         return response(await callV3("members"));
+      if (path === "/v1/notifications" && request.method === "GET")
+        return response(await callV5("notifications"));
+      if (path === "/v1/notifications/read" && request.method === "POST")
+        return response(await callV5("notifications_read"));
+      if (path === "/v1/chat" && request.method === "GET")
+        return response(await callV5("chat_list"));
+      if (path === "/v1/chat" && request.method === "POST") {
+        const body = z.object({ body: z.string().trim().min(1).max(300) }).strict().parse(await readJSON(request));
+        const sent = await callV5("chat_send", body);
+        await pushEvent(sent.id);
+        return response(sent, 201);
+      }
+      if (path === "/v1/push/key" && request.method === "GET")
+        return response({ public_key: d.vapidPublicKey || null });
+      if (path === "/v1/push/subscription" && request.method === "POST") {
+        const body = z.object({
+          endpoint: z.url().max(1500).refine((value) => {
+            const host = new URL(value).hostname;
+            return new URL(value).protocol === "https:" && (
+              host === "web.push.apple.com" || host.endsWith(".push.apple.com") ||
+              host === "fcm.googleapis.com" || host === "updates.push.services.mozilla.com" ||
+              host.endsWith(".push.services.mozilla.com"));
+          }),
+          keys: z.object({ p256dh: z.string().min(40).max(200), auth: z.string().min(10).max(100) }).strict(),
+        }).strict().parse(await readJSON(request));
+        return response(await callV5("push_subscribe", { endpoint: body.endpoint, ...body.keys }));
+      }
+      if (path === "/v1/push/subscription" && request.method === "DELETE") {
+        const body = z.object({ endpoint: z.url().max(1500) }).strict().parse(await readJSON(request));
+        return response(await callV5("push_unsubscribe", body));
+      }
       if (path === "/v1/photos" && request.method === "GET") {
         const cursorParam = url.searchParams.get("cursor");
         const cursor = cursorParam
@@ -201,7 +245,7 @@ export function createHandler(d: Dependencies) {
         if (place) z.string().max(120).parse(place);
         if (member) id.parse(member);
         const photos = (
-          await callV3("list", {
+          await callV5("list", {
             shared,
             featured: !shared && url.searchParams.get("featured") === "true",
             limit: 24,
@@ -254,13 +298,13 @@ export function createHandler(d: Dependencies) {
           return response(await callV3("purge", { photo_id: photoID }), 202);
       }
       const photoMatch = path.match(
-        /^\/v1\/photos\/([^/]+)(?:\/(original-download|assets\/init|share))?$/,
+        /^\/v1\/photos\/([^/]+)(?:\/(original-download|assets\/init|share|like))?$/,
       );
       if (photoMatch) {
         const photoID = id.parse(photoMatch[1]);
         const suffix = photoMatch[2];
         if (!suffix && request.method === "GET") {
-          const photo = await callV3("photo", { photo_id: photoID });
+          const photo = await callV5("photo", { photo_id: photoID });
           const [preview] = await signedPreviews([photo], false, true);
           return response({ ...photo, ...(preview ? { preview_grant: preview } : {}) });
         }
@@ -269,9 +313,15 @@ export function createHandler(d: Dependencies) {
             photo_id: photoID,
             ...z.object({ is_shared: z.boolean() }).strict().parse(await readJSON(request)),
           }));
+        if (suffix === "like" && request.method === "POST") {
+          const body = z.object({ liked: z.boolean() }).strict().parse(await readJSON(request));
+          const updated = await callV5("like", { photo_id: photoID, ...body });
+          if (body.liked) await pushEvent(photoID);
+          return response(updated);
+        }
         if (!suffix && request.method === "PATCH")
           return response(
-            await callV3("edit", {
+            await callV5("edit", {
               photo_id: photoID,
               metadata: editSchema.parse(await readJSON(request)),
             }),
@@ -302,7 +352,9 @@ export function createHandler(d: Dependencies) {
           return response(await callV4("list", { photo_id: photoID }));
         if (!commentID && request.method === "POST") {
           const body = z.object({ body: z.string().trim().min(1).max(30) }).strict().parse(await readJSON(request));
-          return response(await callV4("add", { photo_id: photoID, ...body }), 201);
+          const added = await callV4("add", { photo_id: photoID, ...body });
+          await pushEvent(added.id);
+          return response(added, 201);
         }
         if (commentID && request.method === "DELETE")
           return response(await callV4("delete", { photo_id: photoID, comment_id: commentID }));

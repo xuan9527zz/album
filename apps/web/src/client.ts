@@ -4,7 +4,7 @@ export const localDemo =
 export const inviteMarker = "album-invite-pending";
 if (
   !localDemo &&
-  new URLSearchParams(window.location.hash.slice(1)).get("type") === "invite"
+  ["invite", "recovery"].includes(new URLSearchParams(window.location.hash.slice(1)).get("type") || "")
 )
   sessionStorage.setItem(inviteMarker, "1");
 const config = import.meta.env;

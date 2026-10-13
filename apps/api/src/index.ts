@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import webpush from "web-push";
 import type {
   ScheduledController,
   ExecutionContext,
@@ -14,10 +15,13 @@ export interface Env {
   R2_ACCESS_KEY_ID: string;
   R2_SECRET_ACCESS_KEY: string;
   ALLOWED_ORIGINS: string;
+  VAPID_PUBLIC_KEY?: string;
+  VAPID_PRIVATE_KEY?: string;
+  VAPID_SUBJECT?: string;
   UPLOAD_TTL_SECONDS: string;
   READ_TTL_SECONDS: string;
 }
-export function productionDependencies(env: Env) {
+export function productionDependencies(env: Env, ctx?: ExecutionContext) {
   const admin = createClient(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
@@ -39,6 +43,27 @@ export function productionDependencies(env: Env) {
     origins: env.ALLOWED_ORIGINS.split(",").map((s) => s.trim()),
     uploadTTL: Math.min(Number(env.UPLOAD_TTL_SECONDS) || 600, 900),
     readTTL: Math.min(Number(env.READ_TTL_SECONDS) || 300, 300),
+    vapidPublicKey: env.VAPID_PUBLIC_KEY,
+    push: env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY && env.VAPID_SUBJECT && ctx
+      ? (deliveries: Array<{ endpoint: string; p256dh: string; auth: string; kind: string; actor_name: string; photo_id: string | null }>) => {
+          webpush.setVapidDetails(env.VAPID_SUBJECT!, env.VAPID_PUBLIC_KEY!, env.VAPID_PRIVATE_KEY!);
+          ctx.waitUntil(Promise.allSettled(deliveries.map(async (entry) => {
+            const body = entry.kind === "chat" ? `${entry.actor_name} 在家庭群聊发了消息`
+              : `${entry.actor_name}${entry.kind === "like" ? "赞了" : "评论了"}你的共享照片`;
+            const payload = JSON.stringify({ title: "唯味相册", body,
+              route: entry.kind === "chat" ? "/messages" : `/photo/${entry.photo_id}/shared` });
+            try {
+              await webpush.sendNotification({ endpoint: entry.endpoint, keys: {
+                p256dh: entry.p256dh, auth: entry.auth,
+              } }, payload, { TTL: 3600, urgency: "normal" });
+            } catch (error) {
+              const status = typeof error === "object" && error && "statusCode" in error ? Number(error.statusCode) : 0;
+              if (status === 404 || status === 410)
+                await admin.from("push_subscriptions").delete().eq("endpoint", entry.endpoint);
+            }
+          })).then(() => undefined));
+        }
+      : undefined,
     async authenticate(token: string) {
       try {
         const { data, error } = await verifier.auth.getClaims(token);
@@ -58,7 +83,7 @@ export function productionDependencies(env: Env) {
   };
 }
 export default {
-  async fetch(request: Request, env: Env) {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     if (new URL(request.url).pathname === "/health")
       return Response.json(
         { status: "ok" },
@@ -85,7 +110,7 @@ export default {
         },
         { status: 503, headers: { "Cache-Control": "no-store" } },
       );
-    return createHandler(productionDependencies(env))(request);
+    return createHandler(productionDependencies(env, ctx))(request);
   },
   async scheduled(
     _event: ScheduledController,

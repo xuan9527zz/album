@@ -41,6 +41,7 @@ async function main() {
         { ...spec, role: "thumbnail", filename: "thumbnail.png" },
       ];
       const meta = {
+        title: `示例风景-${n}`,
         date_source: "manual",
         captured_local: `2026-${n < 6 ? "10" : "09"}-${String(11 - (n % 6)).padStart(2, "0")}T16:24:00`,
         location_label: [

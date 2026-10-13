@@ -26,25 +26,30 @@ async function main() {
     .select("user_id", { count: "exact", head: true })
     .eq("is_active", true);
   if (members.error) throw new Error("无法核对成员人数");
-  if ((members.count ?? 0) >= 4) throw new Error("四个成员名额已满");
   const users = await client.auth.admin.listUsers({ page: 1, perPage: 100 });
   if (users.error) throw new Error("无法核对现有账号");
-  if (users.data.users.some((user) => user.email?.toLowerCase() === email))
-    throw new Error("该邮箱已有账号，请先核对，不要重复邀请");
+  const existing = users.data.users.find((user) => user.email?.toLowerCase() === email);
+  if (existing) {
+    const profile = await client.from("profiles").select("display_name,is_active").eq("user_id", existing.id).single();
+    if (profile.error || !profile.data.is_active)
+      throw new Error("该邮箱已有账号，但不是当前家庭成员，请人工核对");
+  } else if ((members.count ?? 0) >= 4) throw new Error("四个成员名额已满");
 
-  const invite = await client.auth.admin.generateLink({
-    type: "invite",
-    email,
-    options: { redirectTo, data: { display_name: name } },
+  const invite = await client.auth.admin.generateLink(existing ? {
+    type: "recovery", email, options: { redirectTo },
+  } : {
+    type: "invite", email, options: { redirectTo, data: { display_name: name } },
   });
   if (invite.error) throw new Error(`邀请链接生成失败：${invite.error.message}`);
-  const profile = await client.from("profiles").insert({
-    user_id: invite.data.user.id,
-    display_name: name,
-    is_active: true,
-  });
-  if (profile.error)
-    throw new Error("邀请账号已生成，但成员资料写入失败；请先补录资料，不要重复邀请");
+  if (!existing) {
+    const profile = await client.from("profiles").insert({
+      user_id: invite.data.user.id,
+      display_name: name,
+      is_active: true,
+    });
+    if (profile.error)
+      throw new Error("邀请账号已生成，但成员资料写入失败；请先补录资料，不要重复邀请");
+  }
 
   const directory = join(".local", "invites");
   await mkdir(directory, { recursive: true });
@@ -53,7 +58,7 @@ async function main() {
     flag: "wx",
     mode: 0o600,
   });
-  console.log(`邀请账号和成员资料已创建。一次性链接仅保存在 ${filename}`);
+  console.log(`${existing ? "现有成员的设密码链接" : "新成员邀请链接"}已生成。一次性链接仅保存在 ${filename}`);
 }
 
 main().catch((error) => {
