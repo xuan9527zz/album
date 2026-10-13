@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
-import { chromium } from "@playwright/test";
+import { readFile, readdir } from "node:fs/promises";
+import { chromium, webkit } from "@playwright/test";
 import assert from "node:assert/strict";
 const build = spawnSync(
   process.execPath,
@@ -19,6 +19,9 @@ const build = spawnSync(
   },
 );
 if (build.status !== 0) process.exit(1);
+const storyAssets = (await readdir(new URL("../dist/assets/", import.meta.url)))
+  .filter((name) => /^StoryStudio-.*\.(js|css)$/.test(name));
+assert.equal(storyAssets.length, 2, "Story Studio must be a separate JS/CSS download");
 const server = createServer(async (req, res) => {
   const pathname = new URL(req.url!, "http://127.0.0.1:4173").pathname;
   if (pathname === "/album/private.json") {
@@ -59,9 +62,9 @@ const server = createServer(async (req, res) => {
   }
 });
 await new Promise<void>((resolve) => server.listen(4173, "127.0.0.1", resolve));
-const browser = await chromium.launch(
-  process.env.CI ? {} : { channel: "chrome" },
-);
+const browser = process.env.TEST_WEBKIT === "true"
+  ? await webkit.launch()
+  : await chromium.launch(process.env.CI ? {} : { channel: "chrome" });
 const context = await browser.newContext();
 const page = await context.newPage();
 try {
@@ -98,12 +101,21 @@ try {
   assert.ok(
     cached.every((u) => !u.includes("private") && !u.includes("Signature")),
   );
+  assert.ok(storyAssets.every((name) => cached.some((u) => u.endsWith(name))));
+  assert.ok(cached.every((u) => !u.includes("heic-to-") && !u.includes("image.worker-")));
   await context.setOffline(true);
+  for (const name of storyAssets) {
+    const loaded = await page.evaluate(
+      async (assetName) => (await fetch(`/album/assets/${assetName}`)).ok,
+      name,
+    );
+    assert.ok(loaded);
+  }
   await page.reload();
   await page.getByText("相册尚未配置", { exact: true }).waitFor();
   await page.getByText("当前离线，请联网后查看或上传照片。").waitFor();
   console.log(
-    "PWA check passed: /album/ manifest/scope/hash refresh, public shell offline, private requests excluded.",
+    "PWA check passed: public shell and small Story Studio assets preloaded, private requests excluded, offline shell available.",
   );
 } finally {
   await browser.close();

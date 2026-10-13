@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   Heart,
   Images,
@@ -35,7 +35,6 @@ import {
 import { auth, Client, configured, inviteMarker, localDemo } from "./client";
 import { cachedImage, clearImageCache, imageInSession } from "./session-image-cache";
 import { metadata as readPhotoMetadata } from "./files";
-import { StoryArea } from "./StoryStudio";
 import {
   addDerivatives,
   addLiveVideo,
@@ -50,6 +49,9 @@ const demoIDs = [
   "33333333-3333-4333-8333-333333333333",
   "44444444-4444-4444-8444-444444444444",
 ];
+const StoryArea = lazy(() =>
+  import("./StoryStudio").then(({ StoryArea }) => ({ default: StoryArea })),
+);
 const appName = "唯味相册";
 const dateText = (p: Photo) =>
   p.captured_local
@@ -549,7 +551,11 @@ function Album({
             />
           ) : null}
           {tab === "trash" && <TrashPage key={revision} client={client} onChange={refresh} />}
-          {tab === "stories" && <StoryArea client={client} route={route} />}
+          {tab === "stories" && (
+            <Suspense fallback={<div className="empty-state" role="status">正在打开影集…</div>}>
+              <StoryArea client={client} route={route} />
+            </Suspense>
+          )}
           {tab === "messages" && <MessagesPage client={client} userID={userID} onRead={() => setUnread(0)} />}
           <div hidden={tab !== "upload"}>
             <Upload client={client} onChange={refresh} />

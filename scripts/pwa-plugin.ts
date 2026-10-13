@@ -28,18 +28,29 @@ export function pwaPlugin(base: string, name: string): Plugin {
           (n) => /\.(js|css|html|png)$/.test(n) || n.endsWith("webmanifest"),
         )
         .map((n) => base + n);
+      const shellFiles = new Set<string>();
+      const addStaticChunk = (name: string) => {
+        if (shellFiles.has(name)) return;
+        const output = bundle[name];
+        if (!output || output.type !== "chunk") return;
+        shellFiles.add(name);
+        for (const imported of output.imports) addStaticChunk(imported);
+        for (const css of output.viteMetadata?.importedCss ?? [])
+          shellFiles.add(css);
+      };
+      for (const name of names) {
+        const output = bundle[name];
+        if (output.type === "chunk" && output.isEntry) addStaticChunk(name);
+      }
       const shell = [
         base + "index.html",
-        ...names
-          .filter(
-            (n) =>
-              n.endsWith(".css") ||
-              (bundle[n].type === "chunk" && bundle[n].isEntry),
-          )
-          .map((n) => base + n),
+        ...[...shellFiles].map((name) => base + name),
         base + "manifest.webmanifest",
         base + "icons/icon-192.png",
       ];
+      const warm = names
+        .filter((name) => /^assets\/StoryStudio-.*\.(js|css)$/.test(name))
+        .map((name) => base + name);
       this.emitFile({
         type: "asset",
         fileName: "manifest.webmanifest",
@@ -78,7 +89,7 @@ export function pwaPlugin(base: string, name: string): Plugin {
       this.emitFile({
         type: "asset",
         fileName: "sw.js",
-        source: `const CACHE='album-shell-${version}';const ALLOW=new Set(${JSON.stringify(allow)});const SHELL=${JSON.stringify(shell)};self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL))));self.addEventListener('message',e=>{if(e.data==='activate')self.skipWaiting();});self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('album-shell-')&&k!==CACHE).map(k=>caches.delete(k))))));self.addEventListener('fetch',e=>{const u=new URL(e.request.url);if(e.request.method!=='GET'||u.origin!==self.location.origin||u.search||e.request.headers.has('authorization'))return;if(e.request.mode==='navigate'&&u.pathname.startsWith(${JSON.stringify(base)})){e.respondWith(fetch(e.request).catch(()=>caches.match(${JSON.stringify(base + "index.html")})));return;}if(!ALLOW.has(u.pathname))return;e.respondWith(caches.open(CACHE).then(async c=>{const cached=await c.match(e.request);if(cached)return cached;const r=await fetch(e.request);if(r.ok&&r.type!=='opaque')await c.put(e.request,r.clone());return r;}));});self.addEventListener('push',e=>{let data={};try{data=e.data?.json()||{};}catch{}e.waitUntil(self.registration.showNotification(data.title||'唯味相册',{body:data.body||'有一条新消息',icon:${JSON.stringify(base + "icons/icon-192.png")},badge:${JSON.stringify(base + "icons/icon-192.png")},data:{route:data.route||'/messages'},tag:'album-'+(data.route||'message')}));});self.addEventListener('notificationclick',e=>{e.notification.close();const route=e.notification.data?.route||'/messages';const target=self.location.origin+${JSON.stringify(base)}+'#'+route;e.waitUntil(self.clients.matchAll({type:'window',includeUncontrolled:true}).then(async clients=>{for(const client of clients){if(client.url.startsWith(self.location.origin+${JSON.stringify(base)})){await client.focus();client.navigate(target);return;}}await self.clients.openWindow(target);}));});`,
+        source: `const CACHE='album-shell-${version}';const ALLOW=new Set(${JSON.stringify(allow)});const SHELL=${JSON.stringify(shell)};const WARM=${JSON.stringify(warm)};self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(async c=>{await c.addAll(SHELL);await Promise.all(WARM.map(u=>c.add(u).catch(()=>{})));})));self.addEventListener('message',e=>{if(e.data==='activate')self.skipWaiting();});self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('album-shell-')&&k!==CACHE).map(k=>caches.delete(k))))));self.addEventListener('fetch',e=>{const u=new URL(e.request.url);if(e.request.method!=='GET'||u.origin!==self.location.origin||u.search||e.request.headers.has('authorization'))return;if(e.request.mode==='navigate'&&u.pathname.startsWith(${JSON.stringify(base)})){e.respondWith(fetch(e.request).catch(()=>caches.match(${JSON.stringify(base + "index.html")})));return;}if(!ALLOW.has(u.pathname))return;e.respondWith(caches.open(CACHE).then(async c=>{const cached=await c.match(e.request);if(cached)return cached;const r=await fetch(e.request);if(r.ok&&r.type!=='opaque')await c.put(e.request,r.clone());return r;}));});self.addEventListener('push',e=>{let data={};try{data=e.data?.json()||{};}catch{}e.waitUntil(self.registration.showNotification(data.title||'唯味相册',{body:data.body||'有一条新消息',icon:${JSON.stringify(base + "icons/icon-192.png")},badge:${JSON.stringify(base + "icons/icon-192.png")},data:{route:data.route||'/messages'},tag:'album-'+(data.route||'message')}));});self.addEventListener('notificationclick',e=>{e.notification.close();const route=e.notification.data?.route||'/messages';const target=self.location.origin+${JSON.stringify(base)}+'#'+route;e.waitUntil(self.clients.matchAll({type:'window',includeUncontrolled:true}).then(async clients=>{for(const client of clients){if(client.url.startsWith(self.location.origin+${JSON.stringify(base)})){await client.focus();client.navigate(target);return;}}await self.clients.openWindow(target);}));});`,
       });
     },
   };
