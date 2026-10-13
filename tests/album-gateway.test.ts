@@ -76,11 +76,12 @@ describe("album gateway", () => {
   it("routes signed image and upload URLs through the same reachable hostname", async () => {
     const signed = "https://65720088c3fb824c33ca1373a9f34f79.r2.cloudflarestorage.com/family-album/photo/a.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-SignedHeaders=content-md5%3Bcontent-type%3Bif-none-match&X-Amz-Signature=abc";
     const upstream = vi.fn(async () => Response.json({ urls: [{ id: "a", url: signed }], grants: [{ url: signed, headers: { "Content-MD5": "abc" } }] }));
-    const response = await handleAlbumGateway(new Request(`${base}/v1/assets/read-urls`, {
+    // Supabase can pass its internal HTTP URL to Edge Functions behind the public HTTPS proxy.
+    const response = await handleAlbumGateway(new Request("http://nqjdngemhgmahqjuuxwx.supabase.co/functions/v1/album-gateway/v1/assets/read-urls", {
       method: "POST", headers: { Origin: origin, Authorization: "Bearer example" }, body: "{}",
     }), upstream);
     const data = await response.json();
-    expect(data.urls[0].url).toBe(`${base}/media?target=${encodeURIComponent(signed)}`);
+    expect(data.urls[0].url).toBe(`https://nqjdngemhgmahqjuuxwx.supabase.co/functions/v1/album-gateway/media?target=${encodeURIComponent(signed)}`);
     expect(data.grants[0].url).toBe(data.urls[0].url);
     expect(data.grants[0].headers["Content-MD5"]).toBe("abc");
   });

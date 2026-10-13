@@ -1,5 +1,6 @@
 const FUNCTION_NAME = "album-gateway";
 const ALLOWED_ORIGIN = "https://xuan9527zz.github.io";
+const PUBLIC_GATEWAY_ORIGIN = "https://nqjdngemhgmahqjuuxwx.supabase.co";
 const WORKER_ORIGIN = "https://family-album-api.xuan1996wyx.workers.dev";
 const R2_ORIGIN = "https://65720088c3fb824c33ca1373a9f34f79.r2.cloudflarestorage.com";
 const R2_BUCKET_PATH = "/family-album/";
@@ -26,14 +27,14 @@ function mediaTarget(raw) {
   }
 }
 
-function replaceSignedURLs(data, gatewayURL) {
-  if (Array.isArray(data)) return data.map((entry) => replaceSignedURLs(entry, gatewayURL));
+function replaceSignedURLs(data) {
+  if (Array.isArray(data)) return data.map(replaceSignedURLs);
   if (!data || typeof data !== "object") return data;
   return Object.fromEntries(Object.entries(data).map(([key, value]) => [
     key,
     key === "url" && typeof value === "string" && mediaTarget(value)
-      ? `${gatewayURL.origin}/functions/v1/${FUNCTION_NAME}/media?target=${encodeURIComponent(value)}`
-      : replaceSignedURLs(value, gatewayURL),
+      ? `${PUBLIC_GATEWAY_ORIGIN}/functions/v1/${FUNCTION_NAME}/media?target=${encodeURIComponent(value)}`
+      : replaceSignedURLs(value),
   ]));
 }
 
@@ -105,7 +106,7 @@ export async function handleAlbumGateway(request, upstreamFetch = fetch) {
     responseHeaders.set("Cache-Control", "no-store");
     const contentType = upstream.headers.get("Content-Type") || "";
     const body = upstream.ok && contentType.includes("application/json")
-      ? JSON.stringify(replaceSignedURLs(await upstream.json(), url))
+      ? JSON.stringify(replaceSignedURLs(await upstream.json()))
       : upstream.body;
     return new Response(body, {
       status: upstream.status,
