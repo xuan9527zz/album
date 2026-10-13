@@ -1169,13 +1169,30 @@ progress::-moz-progress-bar {
   place-items: center;
 }
 .detail-image {
+  position: relative;
   background: #e5e8dc;
   min-height: 550px;
   overflow: auto;
   display: flex;
   align-items: center;
   justify-content: center;
+  touch-action: pan-y;
 }
+.photo-swipe {
+  position: absolute;
+  top: 50%;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: #faf9f0d9;
+  color: #31473b;
+  transform: translateY(-50%);
+}
+.photo-swipe.previous { left: 12px; }
+.photo-swipe.next { right: 12px; }
 .detail-image img {
   display: block;
   width: 100%;
@@ -1191,6 +1208,26 @@ progress::-moz-progress-bar {
   margin: 17px 0 28px;
   line-height: 1.7;
 }
+.photo-comments {
+  margin-top: 28px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.photo-comments h3 { font-size: 17px; margin: 0 0 16px; }
+.photo-comments h3 span { color: #84927d; font-size: 13px; font-weight: normal; }
+.comment-list { max-height: 320px; overflow-y: auto; }
+.comment { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.comment > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.comment strong { font-size: 13px; }
+.comment time { color: #889387; font-size: 11px; }
+.comment p { margin: 7px 0 0; font-size: 14px; overflow-wrap: anywhere; }
+.comment button { padding: 4px 0; font-size: 12px; }
+.comment-empty { color: #879185; font-size: 13px; }
+.photo-comments form { display: grid; gap: 8px; margin-top: 18px; }
+.photo-comments label { font-size: 13px; font-weight: 600; }
+.photo-comments textarea { width: 100%; min-height: 66px; resize: vertical; }
+.photo-comments form > div { display: flex; justify-content: space-between; align-items: center; }
+.photo-comments small { color: #84927d; }
 .detail-meta p {
   display: flex;
   align-items: center;

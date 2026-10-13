@@ -19,6 +19,7 @@ import {
   RefreshCw,
   X,
   ChevronRight,
+  ChevronLeft,
   Leaf,
   WifiOff,
 } from "lucide-react";
@@ -28,6 +29,7 @@ import {
   formatBytes,
 } from "../../../packages/shared/src/index";
 import { auth, Client, configured, inviteMarker, localDemo } from "./client";
+import { cachedImage, clearImageCache, imageInSession } from "./session-image-cache";
 import {
   addDerivatives,
   addLiveVideo,
@@ -49,6 +51,13 @@ const dateText = (p: Photo) =>
     : `上传于 ${new Date(p.uploaded_at).toLocaleDateString("zh-CN")}`;
 const errorText = (e: unknown) =>
   e instanceof Error ? e.message : "操作失败，请稍后重试";
+type PhotoComment = {
+  id: string;
+  body: string;
+  created_at: string;
+  author_name: string;
+  can_delete: boolean;
+};
 function Logo() {
   return (
     <span className="logo-symbol">
@@ -287,6 +296,7 @@ export default function App() {
   const [restoring, setRestoring] = useState(true);
   const [offline, setOffline] = useState(!navigator.onLine);
   useEffect(() => {
+    window.addEventListener("pagehide", clearImageCache);
     const update = () => setOffline(!navigator.onLine);
     window.addEventListener("online", update);
     window.addEventListener("offline", update);
@@ -304,11 +314,13 @@ export default function App() {
       });
       return () => {
         sub.data.subscription.unsubscribe();
+        window.removeEventListener("pagehide", clearImageCache);
         window.removeEventListener("online", update);
         window.removeEventListener("offline", update);
       };
     } else setRestoring(false);
     return () => {
+      window.removeEventListener("pagehide", clearImageCache);
       window.removeEventListener("online", update);
       window.removeEventListener("offline", update);
     };
@@ -319,6 +331,7 @@ export default function App() {
     location.hash = "/featured";
   };
   const logout = async () => {
+    clearImageCache();
     setUserID(null);
     setInvitePending(false);
     sessionStorage.removeItem(inviteMarker);
@@ -367,6 +380,9 @@ function Album({
   const [me, setMe] = useState<any>(null);
   const [memberError, setMemberError] = useState("");
   const [revision, setRevision] = useState(0);
+  const navigationLists = useRef<Record<"featured" | "all" | "shared", string[]>>({
+    featured: [], all: [], shared: [],
+  });
   useEffect(() => {
     let active = true;
     client
@@ -492,6 +508,7 @@ function Album({
               key={`${tab}-${revision}`}
               client={client}
               mode={tab as "featured" | "all" | "shared"}
+              onVisible={(mode, ids) => { navigationLists.current[mode] = ids; }}
             />
           ) : null}
           {tab === "trash" && <TrashPage key={revision} client={client} onChange={refresh} />}
@@ -528,14 +545,15 @@ function Album({
           key={route}
           client={client}
           photoID={route.split("/")[2]}
-          returnTo={route.split("/")[3] === "shared" ? "/shared" : "/all"}
+          returnTo={route.split("/")[3] === "shared" ? "/shared" : route.split("/")[3] === "featured" ? "/featured" : "/all"}
+          navigationIDs={navigationLists.current[(route.split("/")[3] === "shared" || route.split("/")[3] === "featured") ? route.split("/")[3] as "shared" | "featured" : "all"]}
           onChange={refresh}
         />
       )}
     </div>
   );
 }
-function Gallery({ client, mode }: { client: Client; mode: "featured" | "all" | "shared" }) {
+function Gallery({ client, mode, onVisible }: { client: Client; mode: "featured" | "all" | "shared"; onVisible: (mode: "featured" | "all" | "shared", ids: string[]) => void }) {
   const featured = mode === "featured";
   const shared = mode === "shared";
   const [photos, setPhotos] = useState<Photo[]>([]);
@@ -562,6 +580,7 @@ function Gallery({ client, mode }: { client: Client; mode: "featured" | "all" | 
     try {
       const r = await client.request<{
         photos: Photo[];
+        urls?: { id: string; url: string }[];
         next_cursor: string | null;
       }>(
         `/v1/photos?${new URLSearchParams({
@@ -578,7 +597,8 @@ function Gallery({ client, mode }: { client: Client; mode: "featured" | "all" | 
           : r.photos,
       );
       setCursor(r.next_cursor);
-      await authorize(r.photos);
+      if (r.urls) setURLs((old) => ({ ...old, ...Object.fromEntries(r.urls!.map((a) => [a.id, a.url])) }));
+      else await authorize(r.photos);
     } catch (e) {
       if (active.current && version === queryVersion.current) setError(errorText(e));
     } finally {
@@ -593,7 +613,8 @@ function Gallery({ client, mode }: { client: Client; mode: "featured" | "all" | 
           p.assets.find((a) => a.role === "preview"),
       )
       .filter(Boolean)
-      .map((a) => a!.id);
+      .map((a) => a!.id)
+      .filter((id) => !cachedImage(id));
     if (!ids.length) return;
     try {
       const r = await client.request<{ urls: { id: string; url: string }[] }>(
@@ -645,6 +666,7 @@ function Gallery({ client, mode }: { client: Client; mode: "featured" | "all" | 
     setYear(""); setMonth(""); setPlaceInput(""); setPlace(""); setOwner("");
   }
   const hasFilters = Boolean(year || month || place || owner);
+  useEffect(() => { onVisible(mode, photos.map((p) => p.id)); }, [mode, photos]);
   const groups = featured
     ? [["精选", photos] as const]
     : Object.entries(
@@ -763,8 +785,9 @@ function Gallery({ client, mode }: { client: Client; mode: "featured" | "all" | 
                 p.assets.find((a) => a.role === "preview");
               const cardBody = <>
                   <div className={`photo-frame frame-${index % 4}`}>
-                    {asset && urls[asset.id] ? (
+                    {asset && (urls[asset.id] || cachedImage(asset.id)) ? (
                       <PrivateImage
+                        assetID={asset.id}
                         url={urls[asset.id]}
                         alt={p.location_label || "相册照片"}
                         eager={index < 4}
@@ -813,7 +836,7 @@ function Gallery({ client, mode }: { client: Client; mode: "featured" | "all" | 
                   {cardBody}
                 </button>
               ) : (
-                <a className="photo-card" key={p.id} href={`#/photo/${p.id}${shared ? "/shared" : ""}`}
+                <a className="photo-card" key={p.id} href={`#/photo/${p.id}/${mode}`}
                   aria-label={`打开照片 ${p.location_label || dateText(p)}`}>{cardBody}</a>
               );
             })}
@@ -846,15 +869,16 @@ function TrashPage({ client, onChange }: { client: Client; onChange: () => void 
     setLoading(true);
     setError("");
     try {
-      const result = await client.request<{ photos: Photo[]; next_cursor: string | null }>(
+      const result = await client.request<{ photos: Photo[]; urls?: { id: string; url: string }[]; next_cursor: string | null }>(
         `/v1/trash${next ? `?cursor=${encodeURIComponent(next)}` : ""}`,
       );
       if (!active.current) return;
       setPhotos((old) => next ? [...old, ...result.photos.filter((p) => !old.some((x) => x.id === p.id))] : result.photos);
       setCursor(result.next_cursor);
       const ids = result.photos.map((p) => p.assets.find((a) => a.role === "thumbnail") || p.assets.find((a) => a.role === "preview"))
-        .filter(Boolean).map((a) => a!.id);
-      if (ids.length) {
+        .filter(Boolean).map((a) => a!.id).filter((id) => !cachedImage(id));
+      if (result.urls) setURLs((old) => ({ ...old, ...Object.fromEntries(result.urls!.map((x) => [x.id, x.url])) }));
+      else if (ids.length) {
         const read = await client.request<{ urls: { id: string; url: string }[] }>("/v1/trash/read-urls", { ids });
         if (active.current) setURLs((old) => ({ ...old, ...Object.fromEntries(read.urls.map((x) => [x.id, x.url])) }));
       }
@@ -888,7 +912,8 @@ function TrashPage({ client, onChange }: { client: Client; onChange: () => void 
       const asset = p.assets.find((a) => a.role === "thumbnail") || p.assets.find((a) => a.role === "preview");
       const remaining = p.deleted_at ? Math.max(0, Math.ceil((new Date(p.deleted_at).getTime() + 30 * 86400000 - Date.now()) / 86400000)) : 0;
       return <article className="trash-card" key={p.id}>
-        <div className="trash-image">{asset && urls[asset.id] ? <img src={urls[asset.id]} alt="" /> : <Images size={28} />}</div>
+        <div className="trash-image">{asset && (urls[asset.id] || cachedImage(asset.id)) ?
+          <PrivateImage assetID={asset.id} url={urls[asset.id]} alt="" retry={async () => { await load(); }} /> : <Images size={28} />}</div>
         <div className="trash-card-body">
           <strong>{p.location_label || dateText(p)}</strong>
           <small>{remaining ? `还可恢复 ${remaining} 天` : "即将清理"}</small>
@@ -907,57 +932,81 @@ function TrashPage({ client, onChange }: { client: Client; onChange: () => void 
   </section>;
 }
 function PrivateImage({
+  assetID,
   url,
   alt,
   eager = false,
   retry,
 }: {
-  url: string;
+  assetID: string;
+  url?: string;
   alt: string;
   eager?: boolean;
   retry: () => Promise<void>;
 }) {
   const [attempt, setAttempt] = useState(0);
   const [failed, setFailed] = useState(false);
+  const [src, setSrc] = useState(() => cachedImage(assetID) || (localDemo ? url || "" : ""));
+  const retryRef = useRef(retry);
+  retryRef.current = retry;
   useEffect(() => {
+    let live = true;
     setFailed(false);
-  }, [url]);
+    const existing = cachedImage(assetID);
+    if (existing) setSrc(existing);
+    else if (localDemo) setSrc(url || "");
+    else if (url) {
+      setSrc("");
+      imageInSession(assetID, url).then((imageURL) => {
+        if (live) setSrc(imageURL);
+      }).catch(() => {
+        if (!live) return;
+        if (attempt < 1) {
+          setAttempt(1);
+          void retryRef.current();
+        } else setFailed(true);
+      });
+    }
+    return () => { live = false; };
+  }, [assetID, url, attempt]);
   return failed ? (
     <button
       className="image-retry"
       onClick={() => {
         setAttempt(0);
         setFailed(false);
-        retry();
+        void retryRef.current();
       }}
     >
       <RefreshCw size={21} />
       点击重新加载图片
     </button>
   ) : (
-    <img
-      src={url}
+    src ? <img
+      src={src}
       alt={alt}
       loading={eager ? "eager" : "lazy"}
       referrerPolicy="no-referrer"
       onError={() => {
         if (attempt < 1) {
           setAttempt((n) => n + 1);
-          retry();
+          void retryRef.current();
         } else setFailed(true);
       }}
-    />
+    /> : <div className="pending-image"><RefreshCw size={20} className="spin" /></div>
   );
 }
 function Detail({
   client,
   photoID,
   returnTo,
+  navigationIDs,
   onChange,
 }: {
   client: Client;
   photoID: string;
-  returnTo: "/all" | "/shared";
+  returnTo: "/all" | "/shared" | "/featured";
+  navigationIDs: string[];
   onChange: () => void;
 }) {
   const [photo, setPhoto] = useState<Photo | null>(null);
@@ -980,9 +1029,20 @@ function Detail({
   const [unshareableIDs, setUnshareableIDs] = useState<string[]>([]);
   const [savePopupAssetID, setSavePopupAssetID] = useState<string | null>(null);
   const [savePreviewFailed, setSavePreviewFailed] = useState(false);
+  const [comments, setComments] = useState<PhotoComment[]>([]);
+  const [commentText, setCommentText] = useState("");
+  const [commentBusy, setCommentBusy] = useState(false);
+  const [commentError, setCommentError] = useState("");
   const savePopupOpen = useRef(false);
   const savePopupClose = useRef<HTMLButtonElement>(null);
   const localDownloadURLs = useRef(new Set<string>());
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
+  const position = navigationIDs.indexOf(photoID);
+  const previousID = position > 0 ? navigationIDs[position - 1] : null;
+  const nextID = position >= 0 ? navigationIDs[position + 1] || null : null;
+  function navigate(id: string | null) {
+    if (id && !savePopupOpen.current) location.hash = `/photo/${id}${returnTo}`;
+  }
   const isIOS =
     /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
@@ -995,6 +1055,36 @@ function Detail({
   useEffect(() => {
     if (savePopupAssetID) savePopupClose.current?.focus();
   }, [savePopupAssetID]);
+  useEffect(() => {
+    if (!photo?.is_shared) { setComments([]); return; }
+    let live = true;
+    client.request<{ comments: PhotoComment[] }>(`/v1/photos/${photoID}/comments`)
+      .then((result) => { if (live) setComments(result.comments); })
+      .catch((error) => { if (live) setCommentError(errorText(error)); });
+    return () => { live = false; };
+  }, [client, photoID, photo?.is_shared]);
+  async function addComment(event: FormEvent) {
+    event.preventDefault();
+    const body = commentText.trim();
+    if (!body || Array.from(body).length > 30) return;
+    setCommentBusy(true);
+    setCommentError("");
+    try {
+      const added = await client.request<PhotoComment>(`/v1/photos/${photoID}/comments`, { body });
+      setComments((current) => [...current, added]);
+      setCommentText("");
+    } catch (error) { setCommentError(errorText(error)); }
+    finally { setCommentBusy(false); }
+  }
+  async function deleteComment(commentID: string) {
+    setCommentBusy(true);
+    setCommentError("");
+    try {
+      await client.request(`/v1/photos/${photoID}/comments/${commentID}`, undefined, "DELETE");
+      setComments((current) => current.filter((comment) => comment.id !== commentID));
+    } catch (error) { setCommentError(errorText(error)); }
+    finally { setCommentBusy(false); }
+  }
   function close() {
     if (savePopupOpen.current) {
       savePopupOpen.current = false;
@@ -1004,12 +1094,13 @@ function Detail({
     location.hash = returnTo;
   }
   async function load() {
-    const p = await client.request<Photo>(`/v1/photos/${photoID}`);
+    const p = await client.request<Photo & { preview_grant?: { url: string } }>(`/v1/photos/${photoID}`);
     setPhoto(p);
     setDate(p.captured_local?.slice(0, 16) || "");
     setPlace(p.location_label || "");
     const a = p.assets.find((x) => x.role === "preview");
-    if (a) {
+    if (p.preview_grant) setURL(p.preview_grant.url);
+    else if (a && !cachedImage(a.id)) {
       const r = await client.request("/v1/assets/read-urls", { ids: [a.id] });
       setURL(r.urls[0].url);
     }
@@ -1017,14 +1108,15 @@ function Detail({
   useEffect(() => {
     let live = true;
     client
-      .request<Photo>(`/v1/photos/${photoID}`)
+      .request<Photo & { preview_grant?: { url: string } }>(`/v1/photos/${photoID}`)
       .then(async (p) => {
         if (!live) return;
         setPhoto(p);
         setDate(p.captured_local?.slice(0, 16) || "");
         setPlace(p.location_label || "");
         const a = p.assets.find((x) => x.role === "preview");
-        if (a) {
+        if (p.preview_grant) setURL(p.preview_grant.url);
+        else if (a && !cachedImage(a.id)) {
           const r = await client.request("/v1/assets/read-urls", {
             ids: [a.id],
           });
@@ -1206,9 +1298,21 @@ function Detail({
         >
           <X size={23} />
         </button>
-        <div className="detail-image">
-          {url ? (
+        <div className="detail-image"
+          onTouchStart={(event) => { const touch = event.changedTouches[0]; touchStart.current = { x: touch.clientX, y: touch.clientY }; }}
+          onTouchEnd={(event) => {
+            const start = touchStart.current;
+            touchStart.current = null;
+            if (!start || savePopupOpen.current) return;
+            const touch = event.changedTouches[0];
+            const dx = touch.clientX - start.x;
+            const dy = touch.clientY - start.y;
+            if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.3) return;
+            navigate(dx < 0 ? previousID : nextID);
+          }}>
+          {photo && (url || photo.assets.some((a) => a.role === "preview" && cachedImage(a.id))) ? (
             <PrivateImage
+              assetID={photo.assets.find((a) => a.role === "preview")!.id}
               url={url}
               alt={photo?.location_label || "照片预览"}
               eager
@@ -1223,6 +1327,8 @@ function Detail({
               )}
             </div>
           )}
+          {previousID && <button className="photo-swipe previous" type="button" aria-label="上一张照片" onClick={() => navigate(previousID)}><ChevronLeft size={24} /></button>}
+          {nextID && <button className="photo-swipe next" type="button" aria-label="下一张照片" onClick={() => navigate(nextID)}><ChevronRight size={24} /></button>}
         </div>
         <div className="detail-info">
           <p className="eyebrow">A MOMENT TO KEEP</p>
@@ -1555,6 +1661,22 @@ function Detail({
               )}
             </>
           )}
+          {photo?.is_shared && <section className="photo-comments" aria-label="共享照片评论">
+            <h3>家人的评论 <span>{comments.length}</span></h3>
+            {comments.length ? <div className="comment-list">{comments.map((comment) =>
+              <article className="comment" key={comment.id}>
+                <div><strong>{comment.author_name}</strong><time dateTime={comment.created_at}>{new Date(comment.created_at).toLocaleString("zh-CN")}</time></div>
+                <p>{comment.body}</p>
+                {comment.can_delete && <button type="button" className="quiet" disabled={commentBusy} onClick={() => void deleteComment(comment.id)}>删除</button>}
+              </article>)}</div> : <p className="comment-empty">还没有评论</p>}
+            <form onSubmit={(event) => void addComment(event)}>
+              <label htmlFor="new-comment">写评论</label>
+              <textarea id="new-comment" value={commentText} maxLength={30} rows={2}
+                onChange={(event) => setCommentText(event.target.value)} placeholder="最多 30 字" />
+              <div><small>{Array.from(commentText).length}/30</small><button className="primary" disabled={commentBusy || !commentText.trim()}>发布评论</button></div>
+            </form>
+            {commentError && <p className="error" role="alert">{commentError}</p>}
+          </section>}
           {error && (
             <p className="error" role="alert">
               {error}

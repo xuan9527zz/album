@@ -173,6 +173,36 @@ test("year, month, and location search reaches the whole album", async ({ page }
   await page.getByRole("button", { name: "清除筛选" }).click();
   await expect.poll(() => page.locator(".photo-card").count()).toBeGreaterThanOrEqual(12);
 });
+test("photo detail swipes left to the previous image and right to the next", async ({ page }, testInfo) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "我的示例相册" }).click();
+  await page.goto("/#/all");
+  await expect.poll(() => page.locator(".photo-card").count()).toBeGreaterThanOrEqual(3);
+  const cards = await page.locator(".photo-card").evaluateAll((items) =>
+    items.slice(0, 3).map((item) => item.getAttribute("href")),
+  );
+  await page.locator(".photo-card").nth(1).click();
+  expect(new URL(page.url()).hash).toBe(cards[1]);
+  async function swipe(from: number, to: number) {
+    await page.locator(".detail-image").evaluate((element, points) => {
+      const start = new Touch({ identifier: 1, target: element, clientX: points.from, clientY: 240 });
+      const end = new Touch({ identifier: 1, target: element, clientX: points.to, clientY: 240 });
+      element.dispatchEvent(new TouchEvent("touchstart", { bubbles: true, changedTouches: [start], touches: [start] }));
+      element.dispatchEvent(new TouchEvent("touchend", { bubbles: true, changedTouches: [end], touches: [] }));
+    }, { from, to });
+  }
+  if (testInfo.project.name === "desktop-chrome") {
+    await page.getByRole("button", { name: "上一张照片" }).click();
+    await expect.poll(() => new URL(page.url()).hash).toBe(cards[0]);
+    await page.getByRole("button", { name: "下一张照片" }).click();
+    await expect.poll(() => new URL(page.url()).hash).toBe(cards[1]);
+  } else {
+    await swipe(280, 80);
+    await expect.poll(() => new URL(page.url()).hash).toBe(cards[0]);
+    await swipe(80, 280);
+    await expect.poll(() => new URL(page.url()).hash).toBe(cards[1]);
+  }
+});
 test("iPhone opens a save popup with the original image and a share fallback", async ({ page }, testInfo) => {
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "userAgent", {

@@ -1,13 +1,41 @@
 const FUNCTION_NAME = "album-gateway";
 const ALLOWED_ORIGIN = "https://xuan9527zz.github.io";
 const WORKER_ORIGIN = "https://family-album-api.xuan1996wyx.workers.dev";
+const R2_ORIGIN = "https://65720088c3fb824c33ca1373a9f34f79.r2.cloudflarestorage.com";
+const R2_BUCKET_PATH = "/family-album/";
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
-  "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,OPTIONS",
-  "Access-Control-Allow-Headers": "Authorization,Content-Type,Idempotency-Key",
+  "Access-Control-Allow-Methods": "GET,PUT,POST,PATCH,DELETE,OPTIONS",
+  "Access-Control-Allow-Headers": "Authorization,Content-Type,Content-MD5,If-None-Match,Cache-Control,Idempotency-Key,Range",
+  "Access-Control-Expose-Headers": "Content-Disposition,Content-Length,Content-Range",
   "Access-Control-Max-Age": "600",
   Vary: "Origin",
 };
+
+function mediaTarget(raw) {
+  if (!raw || raw.length > 4000) return null;
+  try {
+    const target = new URL(raw);
+    if (target.origin !== R2_ORIGIN || !target.pathname.startsWith(R2_BUCKET_PATH) ||
+        target.username || target.password || target.hash ||
+        target.searchParams.get("X-Amz-Algorithm") !== "AWS4-HMAC-SHA256" ||
+        !target.searchParams.has("X-Amz-Signature")) return null;
+    return target;
+  } catch {
+    return null;
+  }
+}
+
+function replaceSignedURLs(data, gatewayURL) {
+  if (Array.isArray(data)) return data.map((entry) => replaceSignedURLs(entry, gatewayURL));
+  if (!data || typeof data !== "object") return data;
+  return Object.fromEntries(Object.entries(data).map(([key, value]) => [
+    key,
+    key === "url" && typeof value === "string" && mediaTarget(value)
+      ? `${gatewayURL.origin}/functions/v1/${FUNCTION_NAME}/media?target=${encodeURIComponent(value)}`
+      : replaceSignedURLs(value, gatewayURL),
+  ]));
+}
 
 export async function handleAlbumGateway(request, upstreamFetch = fetch) {
   const origin = request.headers.get("Origin");
@@ -24,6 +52,37 @@ export async function handleAlbumGateway(request, upstreamFetch = fetch) {
   if (markerIndex < 0)
     return Response.json({ error: { code: "NOT_FOUND" } }, { status: 404, headers: cors });
   const path = url.pathname.slice(markerIndex + FUNCTION_NAME.length + 1);
+  if (path === "/media") {
+    if (request.method !== "GET" && request.method !== "PUT")
+      return Response.json({ error: { code: "METHOD_NOT_ALLOWED" } }, { status: 405, headers: cors });
+    const target = mediaTarget(url.searchParams.get("target"));
+    if (!target)
+      return Response.json({ error: { code: "BAD_MEDIA_TARGET" } }, { status: 400, headers: cors });
+    const signedHeaders = (target.searchParams.get("X-Amz-SignedHeaders") || "").split(";");
+    if (request.method === "PUT" &&
+        !["content-md5", "content-type", "if-none-match"].every((name) => signedHeaders.includes(name)))
+      return Response.json({ error: { code: "BAD_MEDIA_SIGNATURE" } }, { status: 400, headers: cors });
+    const headers = new Headers();
+    for (const name of ["Content-Type", "Content-MD5", "If-None-Match", "Cache-Control", "Range"])
+      if (request.headers.has(name)) headers.set(name, request.headers.get(name));
+    try {
+      const upstream = await upstreamFetch(target.toString(), {
+        method: request.method,
+        headers,
+        body: request.method === "PUT" ? request.body : undefined,
+        redirect: "manual",
+      });
+      const responseHeaders = new Headers(cors);
+      for (const name of ["Content-Type", "Content-Disposition", "Content-Range", "Accept-Ranges", "ETag"])
+        if (upstream.headers.has(name)) responseHeaders.set(name, upstream.headers.get(name));
+      responseHeaders.set("Cache-Control", "no-store");
+      responseHeaders.set("X-Content-Type-Options", "nosniff");
+      return new Response(upstream.body, { status: upstream.status, headers: responseHeaders });
+    } catch {
+      return Response.json({ error: { code: "MEDIA_UNAVAILABLE" } },
+        { status: 503, headers: { ...cors, "Cache-Control": "no-store" } });
+    }
+  }
   if (path !== "/health" && !path.startsWith("/v1/"))
     return Response.json({ error: { code: "NOT_FOUND" } }, { status: 404, headers: cors });
   if (path !== "/health" && !request.headers.get("Authorization")?.startsWith("Bearer "))
@@ -44,7 +103,11 @@ export async function handleAlbumGateway(request, upstreamFetch = fetch) {
     for (const name of ["Content-Type", "Content-Disposition", "X-Content-Type-Options"])
       if (upstream.headers.has(name)) responseHeaders.set(name, upstream.headers.get(name));
     responseHeaders.set("Cache-Control", "no-store");
-    return new Response(upstream.body, {
+    const contentType = upstream.headers.get("Content-Type") || "";
+    const body = upstream.ok && contentType.includes("application/json")
+      ? JSON.stringify(replaceSignedURLs(await upstream.json(), url))
+      : upstream.body;
+    return new Response(body, {
       status: upstream.status,
       headers: responseHeaders,
     });

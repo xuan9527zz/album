@@ -280,6 +280,11 @@ describe("real SQL migration + API, simulated object transport", () => {
     expect(read.status).toBe(200);
     const urls = (await read.json()) as any;
     expect((await store.fetch(new Request(urls.urls[0].url))).status).toBe(200);
+    const gallery = (await (await api("/v1/photos")).json()) as any;
+    expect(gallery.urls.map((entry: any) => entry.id)).toContain(thumbnail);
+    expect((await store.fetch(new Request(gallery.urls[0].url))).status).toBe(200);
+    const detail = (await (await api(`/v1/photos/${r.session.photo_id}`)).json()) as any;
+    expect(detail.preview_grant.id).toBe(r.session.items.find((i: any) => i.role === "preview").id);
     expect(
       (await api("/v1/assets/read-urls", { ids: [thumbnail] }, "POST", B))
         .status,
@@ -300,6 +305,7 @@ describe("real SQL migration + API, simulated object transport", () => {
     expect(shared.photos).toHaveLength(1);
     expect(shared.photos[0].owner_name).toBe("我的相册");
     expect(shared.photos[0].is_owner).toBe(false);
+    expect(shared.urls).toHaveLength(1);
     expect((await api(`/v1/photos/${pid}`, undefined, "GET", B)).status).toBe(200);
     expect((await api("/v1/assets/read-urls", { ids: [preview] }, "POST", B)).status).toBe(200);
     expect((await api(`/v1/photos/${pid}/original-download`, {}, "POST", B)).status).toBe(200);
@@ -568,6 +574,32 @@ describe("real SQL migration + API, simulated object transport", () => {
     expect((await api(`/v1/trash/${ownID}/restore`, {}, "POST", B)).status).toBe(404);
     expect((await api(`/v1/trash/${ownID}/restore`, {})).status).toBe(200);
     expect(((await (await api("/v1/photos?shared=true", undefined, "GET", B)).json()) as any).photos.map((p: any) => p.id)).toContain(ownID);
+  });
+  it("limits shared comments to 30 characters and enforces author/photo-owner deletion", async () => {
+    const upload = await init();
+    await transfer(upload);
+    const path = `/v1/photos/${upload.session.photo_id}/comments`;
+    expect((await api(path, undefined, "GET", B)).status).toBe(404);
+    expect((await api(path, { body: "你好" }, "POST", B)).status).toBe(404);
+    await api(`/v1/photos/${upload.session.photo_id}/share`, { is_shared: true });
+    expect((await api(path, { body: "中".repeat(31) }, "POST", B)).status).toBe(400);
+    expect((await api(path, { body: "  家人的照片真好看  " }, "POST", B)).status).toBe(201);
+    const comment = (await (await api(path, undefined, "GET", A)).json() as any).comments[0];
+    expect(comment.body).toBe("家人的照片真好看");
+    expect(comment.author_name).toBe((await database.sql.query<{ display_name: string }>(
+      "select display_name from public.profiles where user_id=$1", [B],
+    )).rows[0].display_name);
+    expect(comment.can_delete).toBe(true);
+    expect((await api(`${path}/${comment.id}`, undefined, "DELETE", demoUsers[2])).status).toBe(404);
+    expect((await api(`${path}/${comment.id}`, undefined, "DELETE", A)).status).toBe(200);
+    expect((await (await api(path, undefined, "GET", B)).json() as any).comments).toHaveLength(0);
+    await api(path, { body: "再次留言" }, "POST", B);
+    await api(`/v1/photos/${upload.session.photo_id}/share`, { is_shared: false });
+    expect((await api(path, undefined, "GET", B)).status).toBe(404);
+    await api(`/v1/photos/${upload.session.photo_id}/share`, { is_shared: true });
+    expect((await (await api(path, undefined, "GET", B)).json() as any).comments).toHaveLength(1);
+    await api(`/v1/photos/${upload.session.photo_id}`, undefined, "DELETE", A);
+    expect((await api(path, undefined, "GET", B)).status).toBe(404);
   });
   it("server-side search finds older photos beyond the first page and filters shared members", async () => {
     const target = await init(A, crypto.randomUUID(), [spec()], {

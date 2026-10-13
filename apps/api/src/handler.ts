@@ -32,6 +32,7 @@ const publicErrors: Record<string, [number, string]> = {
   CHECKSUM_MISMATCH: [422, "文件校验未通过，请重试原件上传"],
   FILE_TYPE_MISMATCH: [422, "文件内容与格式不符"],
   STORAGE_UNAVAILABLE: [503, "文件服务暂不可用，请稍后重试"],
+  COMMENT_LIMIT: [409, "这张照片的评论已达上限"],
 };
 class APIError extends Error {
   constructor(
@@ -125,6 +126,23 @@ export function createHandler(d: Dependencies) {
           p_action: action,
           p_data: data,
         });
+      const callV4 = (action: string, data: unknown = {}) =>
+        d.db.call("album_v4_action", {
+          p_owner: owner,
+          p_action: action,
+          p_data: data,
+        });
+      const signedPreviews = async (photos: any[], trashed = false, detail = false) => {
+        const ids = photos.map((p) => detail
+          ? p.assets.find((a: any) => a.role === "preview")?.id
+          : (p.assets.find((a: any) => a.role === "thumbnail") ||
+             p.assets.find((a: any) => a.role === "preview"))?.id).filter(Boolean);
+        if (!ids.length) return [];
+        const records = await callV3(trashed ? "read_trashed" : "read", { ids });
+        return Promise.all(records.map(async (a: any) => ({
+          id: a.id, url: await d.store.grantGet(a.object_key, d.readTTL),
+        })));
+      };
       const grants = async (sessionID: string) => {
         const items = await call("grants", {
           session_id: sessionID,
@@ -197,6 +215,7 @@ export function createHandler(d: Dependencies) {
         const last = photos.at(-1);
         return response({
           photos,
+          urls: await signedPreviews(photos),
           next_cursor:
             photos.length === 24
               ? btoa(
@@ -223,7 +242,7 @@ export function createHandler(d: Dependencies) {
         }).parse(JSON.parse(atob(cursorParam))) : undefined;
         const photos = (await callV3("trash_list", { limit: 24, ...(cursor ? { cursor } : {}) })).photos;
         const last = photos.at(-1);
-        return response({ photos, next_cursor: photos.length === 24
+        return response({ photos, urls: await signedPreviews(photos, true), next_cursor: photos.length === 24
           ? btoa(JSON.stringify({ deleted_at: last.deleted_at, id: last.id })) : null });
       }
       const trashMatch = path.match(/^\/v1\/trash\/([^/]+)(?:\/(restore))?$/);
@@ -240,8 +259,11 @@ export function createHandler(d: Dependencies) {
       if (photoMatch) {
         const photoID = id.parse(photoMatch[1]);
         const suffix = photoMatch[2];
-        if (!suffix && request.method === "GET")
-          return response(await callV3("photo", { photo_id: photoID }));
+        if (!suffix && request.method === "GET") {
+          const photo = await callV3("photo", { photo_id: photoID });
+          const [preview] = await signedPreviews([photo], false, true);
+          return response({ ...photo, ...(preview ? { preview_grant: preview } : {}) });
+        }
         if (suffix === "share" && request.method === "POST")
           return response(await callV3("share", {
             photo_id: photoID,
@@ -271,6 +293,19 @@ export function createHandler(d: Dependencies) {
             expires_in: d.readTTL,
           });
         }
+      }
+      const commentMatch = path.match(/^\/v1\/photos\/([^/]+)\/comments(?:\/([^/]+))?$/);
+      if (commentMatch) {
+        const photoID = id.parse(commentMatch[1]);
+        const commentID = commentMatch[2] ? id.parse(commentMatch[2]) : null;
+        if (!commentID && request.method === "GET")
+          return response(await callV4("list", { photo_id: photoID }));
+        if (!commentID && request.method === "POST") {
+          const body = z.object({ body: z.string().trim().min(1).max(30) }).strict().parse(await readJSON(request));
+          return response(await callV4("add", { photo_id: photoID, ...body }), 201);
+        }
+        if (commentID && request.method === "DELETE")
+          return response(await callV4("delete", { photo_id: photoID, comment_id: commentID }));
       }
       if (
         (path === "/v1/uploads/init" || photoMatch?.[2] === "assets/init") &&

@@ -72,4 +72,33 @@ describe("album gateway", () => {
     expect(pathResponse.status).toBe(404);
     expect(upstream).not.toHaveBeenCalled();
   });
+
+  it("routes signed image and upload URLs through the same reachable hostname", async () => {
+    const signed = "https://65720088c3fb824c33ca1373a9f34f79.r2.cloudflarestorage.com/family-album/photo/a.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-SignedHeaders=content-md5%3Bcontent-type%3Bif-none-match&X-Amz-Signature=abc";
+    const upstream = vi.fn(async () => Response.json({ urls: [{ id: "a", url: signed }], grants: [{ url: signed, headers: { "Content-MD5": "abc" } }] }));
+    const response = await handleAlbumGateway(new Request(`${base}/v1/assets/read-urls`, {
+      method: "POST", headers: { Origin: origin, Authorization: "Bearer example" }, body: "{}",
+    }), upstream);
+    const data = await response.json();
+    expect(data.urls[0].url).toBe(`${base}/media?target=${encodeURIComponent(signed)}`);
+    expect(data.grants[0].url).toBe(data.urls[0].url);
+    expect(data.grants[0].headers["Content-MD5"]).toBe("abc");
+  });
+
+  it("streams a signed PUT while rejecting arbitrary media targets", async () => {
+    const signed = "https://65720088c3fb824c33ca1373a9f34f79.r2.cloudflarestorage.com/family-album/test.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-SignedHeaders=content-md5%3Bcontent-type%3Bif-none-match&X-Amz-Signature=abc";
+    const upstream = vi.fn(async (_url: string, init: RequestInit) => {
+      expect(init.method).toBe("PUT");
+      expect(new Headers(init.headers).get("Content-MD5")).toBe("checksum");
+      expect(await new Response(init.body).text()).toBe("image bytes");
+      return new Response(null, { status: 200 });
+    });
+    const response = await handleAlbumGateway(new Request(`${base}/media?target=${encodeURIComponent(signed)}`, {
+      method: "PUT", headers: { Origin: origin, "Content-Type": "image/png", "Content-MD5": "checksum", "If-None-Match": "*" }, body: "image bytes", duplex: "half",
+    } as RequestInit), upstream);
+    expect(response.status).toBe(200);
+    const rejected = await handleAlbumGateway(new Request(`${base}/media?target=${encodeURIComponent("https://evil.example/steal")}`, { headers: { Origin: origin } }), upstream);
+    expect(rejected.status).toBe(400);
+    expect(upstream).toHaveBeenCalledTimes(1);
+  });
 });
