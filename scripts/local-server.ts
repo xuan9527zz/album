@@ -89,6 +89,13 @@ async function main() {
   await sql.exec("truncate public.request_limits");
   const server = createServer(async (req, res) => {
     try {
+      // Each browser test starts with a fresh rate window; the demo API never runs in production.
+      if (req.method === "POST" && req.url === "/__test/reset-request-limits") {
+        await sql.exec("truncate public.request_limits");
+        res.writeHead(204);
+        res.end();
+        return;
+      }
       const url = `http://127.0.0.1:8788${req.url}`;
       const chunks: Buffer[] = [];
       let size = 0;

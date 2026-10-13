@@ -1,6 +1,10 @@
 import { test, expect } from "@playwright/test";
 import path from "node:path";
 import { readFile } from "node:fs/promises";
+test.beforeEach(async ({ request }) => {
+  const response = await request.post("http://127.0.0.1:8788/__test/reset-request-limits");
+  expect(response.status()).toBe(204);
+});
 test("login, upload, original download, edit, batch, trash, restore, and account isolation", async ({
   page,
 }, testInfo) => {
