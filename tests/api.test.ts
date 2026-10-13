@@ -485,21 +485,41 @@ describe("real SQL migration + API, simulated object transport", () => {
       ),
     ).toEqual(video);
   });
-  it("deletion stops new links, waits for replay window, and handles retry without negative budget", async () => {
-    const r = await init();
+  it("trash hides a photo, restores it, then expires after 30 days without losing quota early", async () => {
+    const r = await init(A, crypto.randomUUID(), [spec(), spec("thumbnail")]);
     await transfer(r);
+    await transfer(r, "thumbnail");
+    const photoID = r.session.photo_id;
+    const assetID = (await (await api(`/v1/photos/${photoID}`)).json() as any).assets.find((a: any) => a.role === "thumbnail").id;
     expect(
-      (await api(`/v1/photos/${r.session.photo_id}`, undefined, "DELETE"))
+      (await api(`/v1/photos/${photoID}`, undefined, "DELETE"))
         .status,
     ).toBe(202);
     expect(
-      (await api(`/v1/photos/${r.session.photo_id}/original-download`, {}))
+      (await api(`/v1/photos/${photoID}/original-download`, {}))
         .status,
     ).toBe(404);
+    expect((await api(`/v1/photos/${photoID}`)).status).toBe(404);
+    expect(((await (await api("/v1/photos")).json()) as any).photos).toHaveLength(0);
+    expect((await api("/v1/assets/read-urls", { ids: [assetID] })).status).toBe(404);
+    expect((await api("/v1/trash/read-urls", { ids: [assetID] })).status).toBe(200);
+    expect((await api("/v1/trash/read-urls", { ids: [assetID] }, "POST", B)).status).toBe(404);
+    expect(((await (await api("/v1/trash")).json()) as any).photos).toHaveLength(1);
+    expect((await api("/v1/trash", undefined, "GET", B)).status).toBe(200);
+    expect(((await (await api("/v1/trash", undefined, "GET", B)).json()) as any).photos).toHaveLength(0);
+    await database.sql.exec("update public.upload_items set signed_until=now()-interval '2 minutes'");
     expect((await cleanUp(database.db, store, false)).photos).toBe(0);
-    await database.sql.exec(
-      "update public.upload_items set signed_until=now()-interval '2 minutes'",
-    );
+    expect((await api(`/v1/photos/${photoID}`)).status).toBe(404);
+    expect(store.objects.size).toBe(2);
+    expect((await api(`/v1/trash/${photoID}/restore`, {})).status).toBe(200);
+    expect((await api(`/v1/photos/${photoID}`)).status).toBe(200);
+    expect(((await (await api("/v1/trash")).json()) as any).photos).toHaveLength(0);
+    await api(`/v1/photos/${photoID}`, undefined, "DELETE");
+    await database.sql.exec("update public.photos set deleted_at=now()-interval '31 days' where lifecycle_status='trashed'");
+    const dryRun = await cleanUp(database.db, store, true);
+    expect(dryRun.photos).toBe(0);
+    expect(dryRun.expired_due).toBe(1);
+    expect((await api(`/v1/trash/${photoID}/restore`, {})).status).toBe(404);
     await cleanUp(database.db, store, false);
     await cleanUp(database.db, store, false);
     expect(store.objects.size).toBe(0);
@@ -511,6 +531,7 @@ describe("real SQL migration + API, simulated object transport", () => {
     const r = await init();
     await transfer(r);
     await api(`/v1/photos/${r.session.photo_id}`, undefined, "DELETE");
+    await api(`/v1/trash/${r.session.photo_id}`, undefined, "DELETE");
     await database.sql.exec(
       "update public.upload_items set signed_until=now()-interval '2 minutes'",
     );
@@ -527,6 +548,46 @@ describe("real SQL migration + API, simulated object transport", () => {
     expect(
       ((await api("/v1/usage").then((r) => r.json())) as any).committed_bytes,
     ).toBe(0);
+  });
+  it("batch changes are owner-only and atomic, including shared visibility", async () => {
+    const own = await init();
+    const other = await init(B);
+    await transfer(own);
+    await transfer(other);
+    const ownID = own.session.photo_id;
+    const otherID = other.session.photo_id;
+    expect((await api("/v1/photos/batch", { ids: [ownID, otherID], operation: "share_on" })).status).toBe(404);
+    expect((await (await api(`/v1/photos/${ownID}`)).json() as any).is_shared).toBe(false);
+    expect((await api("/v1/photos/batch", { ids: [ownID, ownID], operation: "share_on" })).status).toBe(400);
+    expect((await api("/v1/photos/batch", { ids: [ownID], operation: "feature_on" })).status).toBe(200);
+    expect((await api("/v1/photos/batch", { ids: [ownID], operation: "share_on" })).status).toBe(200);
+    expect(((await (await api("/v1/photos?shared=true", undefined, "GET", B)).json()) as any).photos.map((p: any) => p.id)).toContain(ownID);
+    expect((await api("/v1/photos/batch", { ids: [ownID], operation: "share_off" }, "POST", B)).status).toBe(404);
+    expect((await api("/v1/photos/batch", { ids: [ownID], operation: "trash" })).status).toBe(200);
+    expect(((await (await api("/v1/photos?shared=true", undefined, "GET", B)).json()) as any).photos.map((p: any) => p.id)).not.toContain(ownID);
+    expect((await api(`/v1/trash/${ownID}/restore`, {}, "POST", B)).status).toBe(404);
+    expect((await api(`/v1/trash/${ownID}/restore`, {})).status).toBe(200);
+    expect(((await (await api("/v1/photos?shared=true", undefined, "GET", B)).json()) as any).photos.map((p: any) => p.id)).toContain(ownID);
+  });
+  it("server-side search finds older photos beyond the first page and filters shared members", async () => {
+    const target = await init(A, crypto.randomUUID(), [spec()], {
+      captured_local: "2024-07-14T10:00:00", location_label: "海边散步",
+      date_source: "manual", location_source: "manual", is_featured: false,
+    });
+    await transfer(target);
+    await database.sql.query(`insert into public.photos(owner_id,lifecycle_status,original_status,sort_date,location_label)
+      select $1,'active','saved',current_date,'别的地方' from generate_series(1,30)`, [A]);
+    const unfiltered = (await (await api("/v1/photos")).json()) as any;
+    expect(unfiltered.photos).toHaveLength(24);
+    expect(unfiltered.photos.map((p: any) => p.id)).not.toContain(target.session.photo_id);
+    const found = (await (await api("/v1/photos?year=2024&month=7&place=%E6%B5%B7%E8%BE%B9")).json()) as any;
+    expect(found.photos.map((p: any) => p.id)).toEqual([target.session.photo_id]);
+    expect((await api("/v1/photos?year=bad")).status).toBe(400);
+    expect((await api("/v1/photos?month=13")).status).toBe(400);
+    await api("/v1/photos/batch", { ids: [target.session.photo_id], operation: "share_on" });
+    const shared = (await (await api(`/v1/photos?shared=true&owner=${A}&year=2024&month=7`, undefined, "GET", B)).json()) as any;
+    expect(shared.photos.map((p: any) => p.id)).toEqual([target.session.photo_id]);
+    expect(((await (await api(`/v1/photos?shared=true&owner=${B}`, undefined, "GET", B)).json()) as any).photos).toHaveLength(0);
   });
   it("cancelled PUT can reappear before expiry and known-key cleanup converges", async () => {
     const r = await init();
@@ -634,8 +695,10 @@ describe("real SQL migration + API, simulated object transport", () => {
     expect(ids.size).toBe(2000);
   });
   it("RLS exposes only own rows, hides inactive rows, and revokes direct writes/private tables/RPCs", async () => {
+    const trashed = await init();
     await init();
     await init(B);
+    await api(`/v1/photos/${trashed.session.photo_id}`, undefined, "DELETE");
     try {
       await database.sql.exec(
         `set role authenticated;select set_config('request.jwt.claim.sub','${A}',false);`,
@@ -651,6 +714,7 @@ describe("real SQL migration + API, simulated object transport", () => {
         "select * from public.upload_sessions",
         "update public.profiles set is_active=true",
         `select public.album_action('${B}','me','{}')`,
+        `select public.album_v3_action('${B}','members','{}')`,
       ])
         await expect(database.sql.query(q)).rejects.toThrow(
           /permission denied/,

@@ -4,7 +4,7 @@
 
 ## 1. Supabase
 
-项目 `nqjdngemhgmahqjuuxwx` 已在 SQL Editor 执行两份迁移，**不要重复执行**。核对 `profiles`、`photos`、`photo_assets` 的 RLS 已开启，anon 无业务读取权限，`authenticated` 只有本人 SELECT，`album_action`、`album_v2_action` 与 `album_maintenance` 仅 service role 可执行。共享照片只能通过已验证成员身份的 Worker 读取，现有照片默认不共享。以后用新增迁移升级。
+项目 `nqjdngemhgmahqjuuxwx` 已在 SQL Editor 执行前两份迁移，**不要重复执行**。新版最近删除、批量管理与快速查找依赖 `supabase/migrations/202610130002_trash_batch_search.sql`；发布顺序必须是**先运行该迁移，再部署 Worker，最后部署 Pages**。迁移在事务中添加删除时间、私有回收站状态、收紧的 RLS、受控操作与到期清理函数；不会修改已有照片的状态。升级后核对 `profiles`、`photos`、`photo_assets` 的 RLS 已开启，anon 无业务读取权限，`authenticated` 只有本人且非最近删除的 SELECT，`album_action`、`album_v2_action`、`album_v3_action` 与维护函数仅 service role 可执行。共享照片只能通过已验证成员身份的 Worker 读取，现有照片默认不共享。
 
 Auth 的公众注册与匿名登录已关闭，刷新设置页后再次核对；账号由管理员控制台或受控脚本建立，最多启用四个成员。首位成员 `xuan` 已用管理员控制台创建并在正式站点登录、上传一张照片。之后可用 `npm run invite -- 家人邮箱 昵称` 生成私密邀请链接，让受邀人自己设置密码；具体发送与清理步骤见 [维护说明](OPERATIONS.md)。Supabase 的前端 publishable key 可公开；后台 secret key 已在本机私密环境验证管理员接口，后续只能放在 Worker secrets 和本地私密环境中。[Supabase Auth](https://supabase.com/docs/guides/auth)、[API keys](https://supabase.com/docs/guides/getting-started/api-keys)、[RLS](https://supabase.com/docs/guides/database/postgres/row-level-security)。
 

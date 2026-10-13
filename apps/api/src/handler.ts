@@ -119,6 +119,12 @@ export function createHandler(d: Dependencies) {
           p_action: action,
           p_data: data,
         });
+      const callV3 = (action: string, data: unknown = {}) =>
+        d.db.call("album_v3_action", {
+          p_owner: owner,
+          p_action: action,
+          p_data: data,
+        });
       const grants = async (sessionID: string) => {
         const items = await call("grants", {
           session_id: sessionID,
@@ -144,7 +150,7 @@ export function createHandler(d: Dependencies) {
         );
       };
       if (path === "/v1/me" && request.method === "GET")
-        return response({ ...(await call("me")), ...(await callV2("profile_read")) });
+        return response({ ...(await callV3("summary")), ...(await callV2("profile_read")) });
       if (path === "/v1/me" && request.method === "PATCH") {
         const profile = z.object({
           display_name: z.string().trim().min(1).max(40).optional(),
@@ -153,7 +159,9 @@ export function createHandler(d: Dependencies) {
         return response(await callV2("profile", profile));
       }
       if (path === "/v1/usage" && request.method === "GET")
-        return response(await call("usage"));
+        return response(await callV3("summary"));
+      if (path === "/v1/members" && request.method === "GET")
+        return response(await callV3("members"));
       if (path === "/v1/photos" && request.method === "GET") {
         const cursorParam = url.searchParams.get("cursor");
         const cursor = cursorParam
@@ -166,15 +174,25 @@ export function createHandler(d: Dependencies) {
               .parse(JSON.parse(atob(cursorParam)))
           : undefined;
         const shared = url.searchParams.get("shared") === "true";
+        const year = url.searchParams.get("year") || undefined;
+        const month = url.searchParams.get("month") || undefined;
+        const place = url.searchParams.get("place")?.trim() || undefined;
+        const member = url.searchParams.get("owner") || undefined;
+        if (year) z.string().regex(/^(19|20|21)\d{2}$/).parse(year);
+        if (month) z.string().regex(/^(0?[1-9]|1[0-2])$/).parse(month);
+        if (place) z.string().max(120).parse(place);
+        if (member) id.parse(member);
         const photos = (
-          await (shared ? callV2("list_shared", {
+          await callV3("list", {
+            shared,
+            featured: !shared && url.searchParams.get("featured") === "true",
             limit: 24,
             ...(cursor ? { cursor } : {}),
-          }) : call("list", {
-            featured: url.searchParams.get("featured") === "true",
-            limit: 24,
-            ...(cursor ? { cursor } : {}),
-          }))
+            ...(year ? { year } : {}),
+            ...(month ? { month } : {}),
+            ...(place ? { place } : {}),
+            ...(member ? { owner: member } : {}),
+          })
         ).photos;
         const last = photos.at(-1);
         return response({
@@ -191,6 +209,31 @@ export function createHandler(d: Dependencies) {
               : null,
         });
       }
+      if (path === "/v1/photos/batch" && request.method === "POST") {
+        const body = z.object({
+          ids: z.array(id).min(1).max(50).refine((ids) => new Set(ids).size === ids.length),
+          operation: z.enum(["feature_on", "feature_off", "share_on", "share_off", "trash"]),
+        }).strict().parse(await readJSON(request));
+        return response(await callV3("batch", body));
+      }
+      if (path === "/v1/trash" && request.method === "GET") {
+        const cursorParam = url.searchParams.get("cursor");
+        const cursor = cursorParam ? z.object({
+          deleted_at: z.string().datetime({ offset: true }), id,
+        }).parse(JSON.parse(atob(cursorParam))) : undefined;
+        const photos = (await callV3("trash_list", { limit: 24, ...(cursor ? { cursor } : {}) })).photos;
+        const last = photos.at(-1);
+        return response({ photos, next_cursor: photos.length === 24
+          ? btoa(JSON.stringify({ deleted_at: last.deleted_at, id: last.id })) : null });
+      }
+      const trashMatch = path.match(/^\/v1\/trash\/([^/]+)(?:\/(restore))?$/);
+      if (trashMatch && trashMatch[1] !== "read-urls") {
+        const photoID = id.parse(trashMatch[1]);
+        if (trashMatch[2] === "restore" && request.method === "POST")
+          return response(await callV3("restore", { photo_id: photoID }));
+        if (!trashMatch[2] && request.method === "DELETE")
+          return response(await callV3("purge", { photo_id: photoID }), 202);
+      }
       const photoMatch = path.match(
         /^\/v1\/photos\/([^/]+)(?:\/(original-download|assets\/init|share))?$/,
       );
@@ -198,26 +241,26 @@ export function createHandler(d: Dependencies) {
         const photoID = id.parse(photoMatch[1]);
         const suffix = photoMatch[2];
         if (!suffix && request.method === "GET")
-          return response(await callV2("photo", { photo_id: photoID }));
+          return response(await callV3("photo", { photo_id: photoID }));
         if (suffix === "share" && request.method === "POST")
-          return response(await callV2("share", {
+          return response(await callV3("share", {
             photo_id: photoID,
             ...z.object({ is_shared: z.boolean() }).strict().parse(await readJSON(request)),
           }));
         if (!suffix && request.method === "PATCH")
           return response(
-            await call("edit", {
+            await callV3("edit", {
               photo_id: photoID,
               metadata: editSchema.parse(await readJSON(request)),
             }),
           );
         if (!suffix && request.method === "DELETE")
-          return response(await call("delete", { photo_id: photoID }), 202);
+          return response(await callV3("trash", { photo_id: photoID }), 202);
         if (suffix === "original-download" && request.method === "POST") {
           const role = z
             .enum(["original_image", "live_video"])
             .parse((await readJSON(request)).role || "original_image");
-          const object = await callV2("download", { photo_id: photoID, role });
+          const object = await callV3("download", { photo_id: photoID, role });
           return response({
             url: await d.store.grantGet(
               object.object_key,
@@ -250,11 +293,13 @@ export function createHandler(d: Dependencies) {
         const digest = Array.from(new Uint8Array(bytes), (n) =>
           n.toString(16).padStart(2, "0"),
         ).join("");
-        const s = await call(photoMatch ? "supplement" : "init", {
+        const s = await (photoMatch ? callV3("supplement", {
+          ...data, key, digest,
+        }) : call("init", {
           ...data,
           key,
           digest,
-        });
+        }));
         return response(
           { session: s, grants: s.state === "open" ? await grants(s.id) : [] },
           201,
@@ -313,7 +358,7 @@ export function createHandler(d: Dependencies) {
           );
         }
       }
-      if (path === "/v1/assets/read-urls" && request.method === "POST") {
+      if ((path === "/v1/assets/read-urls" || path === "/v1/trash/read-urls") && request.method === "POST") {
         const body = z
           .object({
             ids: z
@@ -324,7 +369,7 @@ export function createHandler(d: Dependencies) {
           })
           .strict()
           .parse(await readJSON(request));
-        const records = await callV2("read", { ids: body.ids });
+        const records = await callV3(path.startsWith("/v1/trash") ? "read_trashed" : "read", { ids: body.ids });
         return response({
           urls: await Promise.all(
             records.map(async (a: any) => ({
@@ -370,6 +415,9 @@ export function createHandler(d: Dependencies) {
   };
 }
 export async function cleanUp(db: DB, store: ObjectStore, dryRun = true) {
+  const expiration = await db.call("album_v3_maintenance", {
+    p_action: dryRun ? "due" : "expire", p_data: {},
+  });
   const plan = await db.call("album_maintenance", {
     p_action: "plan",
     p_data: {},
@@ -391,6 +439,7 @@ export async function cleanUp(db: DB, store: ObjectStore, dryRun = true) {
     }
   return {
     dry_run: dryRun,
+    expired_due: Number(expiration.expired_due ?? expiration.expired),
     photos: plan.deletions.length,
     sessions: plan.sessions.length,
     objects,

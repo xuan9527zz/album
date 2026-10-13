@@ -133,6 +133,7 @@ export interface Photo {
   preview_status: string;
   live_status: string;
   lifecycle_status: string;
+  deleted_at?: string | null;
   assets: Asset[];
 }
 export interface UploadItem {

@@ -397,6 +397,8 @@ function Album({
     ? "all"
     : route.startsWith("/shared") || route.endsWith("/shared")
       ? "shared"
+    : route.startsWith("/trash")
+      ? "trash"
     : route.startsWith("/upload")
       ? "upload"
       : route.startsWith("/me")
@@ -492,6 +494,7 @@ function Album({
               mode={tab as "featured" | "all" | "shared"}
             />
           ) : null}
+          {tab === "trash" && <TrashPage key={revision} client={client} onChange={refresh} />}
           <div hidden={tab !== "upload"}>
             <Upload client={client} onChange={refresh} />
           </div>
@@ -540,9 +543,20 @@ function Gallery({ client, mode }: { client: Client; mode: "featured" | "all" | 
   const [cursor, setCursor] = useState<string | null>(null);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
-  const [filter, setFilter] = useState("");
+  const [year, setYear] = useState("");
+  const [month, setMonth] = useState("");
+  const [placeInput, setPlaceInput] = useState("");
+  const [place, setPlace] = useState("");
+  const [owner, setOwner] = useState("");
+  const [members, setMembers] = useState<{ id: string; name: string }[]>([]);
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [confirmTrash, setConfirmTrash] = useState(false);
   const active = useRef(true);
+  const queryVersion = useRef(0);
   async function load(next?: string) {
+    const version = ++queryVersion.current;
     setBusy(true);
     setError("");
     try {
@@ -550,9 +564,14 @@ function Gallery({ client, mode }: { client: Client; mode: "featured" | "all" | 
         photos: Photo[];
         next_cursor: string | null;
       }>(
-        `/v1/photos?${shared ? "shared=true" : `featured=${featured}`}${next ? `&cursor=${encodeURIComponent(next)}` : ""}`,
+        `/v1/photos?${new URLSearchParams({
+          shared: String(shared), featured: String(featured),
+          ...(year ? { year } : {}), ...(month ? { month } : {}),
+          ...(place ? { place } : {}), ...(shared && owner ? { owner } : {}),
+          ...(next ? { cursor: next } : {}),
+        })}`,
       );
-      if (!active.current) return;
+      if (!active.current || version !== queryVersion.current) return;
       setPhotos((p) =>
         next
           ? [...p, ...r.photos.filter((x) => !p.some((y) => y.id === x.id))]
@@ -561,9 +580,9 @@ function Gallery({ client, mode }: { client: Client; mode: "featured" | "all" | 
       setCursor(r.next_cursor);
       await authorize(r.photos);
     } catch (e) {
-      if (active.current) setError(errorText(e));
+      if (active.current && version === queryVersion.current) setError(errorText(e));
     } finally {
-      if (active.current) setBusy(false);
+      if (active.current && version === queryVersion.current) setBusy(false);
     }
   }
   async function authorize(items: Photo[]) {
@@ -591,21 +610,45 @@ function Gallery({ client, mode }: { client: Client; mode: "featured" | "all" | 
     }
   }
   useEffect(() => {
+    const timer = window.setTimeout(() => setPlace(placeInput.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [placeInput]);
+  useEffect(() => {
+    if (!shared) return;
+    client.request<{ id: string; name: string }[]>("/v1/members")
+      .then(setMembers).catch((e) => { if (active.current) setError(errorText(e)); });
+  }, [client, shared]);
+  useEffect(() => {
     active.current = true;
-    load();
+    setPhotos([]);
+    setCursor(null);
+    void load();
     return () => {
       active.current = false;
+      queryVersion.current++;
     };
-  }, []);
-  const visible = filter
-    ? photos.filter((p) =>
-        `${p.location_label || ""} ${p.captured_local || ""}`.includes(filter),
-      )
-    : photos;
+  }, [mode, year, month, place, owner]);
+  async function batch(operation: "feature_on" | "feature_off" | "share_on" | "share_off" | "trash") {
+    if (!selected.length) return;
+    setBatchBusy(true);
+    setError("");
+    try {
+      await client.request("/v1/photos/batch", { ids: selected, operation });
+      setSelected([]);
+      setConfirmTrash(false);
+      setSelecting(false);
+      await load();
+    } catch (e) { setError(errorText(e)); }
+    finally { setBatchBusy(false); }
+  }
+  function clearFilters() {
+    setYear(""); setMonth(""); setPlaceInput(""); setPlace(""); setOwner("");
+  }
+  const hasFilters = Boolean(year || month || place || owner);
   const groups = featured
-    ? [["精选", visible] as const]
+    ? [["精选", photos] as const]
     : Object.entries(
-        visible.reduce<Record<string, Photo[]>>((g, p) => {
+        photos.reduce<Record<string, Photo[]>>((g, p) => {
           const month = p.sort_date.slice(0, 7);
           (g[month] ||= []).push(p);
           return g;
@@ -643,19 +686,43 @@ function Gallery({ client, mode }: { client: Client; mode: "featured" | "all" | 
             {cursor ? "+" : ""} 张
           </span>
         </div>
-        {!featured && !shared && (
-          <input
-            className="search"
-            aria-label="筛选已加载照片"
-            placeholder="筛选日期或地点"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-          />
-        )}
+        {!featured && <div className="gallery-filters">
+          <select aria-label="筛选年份" value={year} onChange={(e) => setYear(e.target.value)}>
+            <option value="">所有年份</option>
+            {Array.from({ length: new Date().getFullYear() - 1899 }, (_, index) => new Date().getFullYear() - index)
+              .map((value) => <option key={value} value={value}>{value} 年</option>)}
+          </select>
+          <select aria-label="筛选月份" value={month} onChange={(e) => setMonth(e.target.value)}>
+            <option value="">所有月份</option>
+            {Array.from({ length: 12 }, (_, index) => index + 1)
+              .map((value) => <option key={value} value={value}>{value} 月</option>)}
+          </select>
+          <input className="search" aria-label="筛选地点" placeholder="搜索地点" value={placeInput}
+            onChange={(e) => setPlaceInput(e.target.value)} />
+          {shared && <select aria-label="筛选上传成员" value={owner} onChange={(e) => setOwner(e.target.value)}>
+            <option value="">所有成员</option>
+            {members.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
+          </select>}
+          {hasFilters && <button className="quiet" onClick={clearFilters}>清除筛选</button>}
+        </div>}
+        <button className="secondary select-toggle" onClick={() => { setSelecting(!selecting); setSelected([]); setConfirmTrash(false); }}>
+          {selecting ? "完成选择" : "批量管理"}
+        </button>
         <span className="sort-label">
           拍摄日期 ↓
         </span>
       </div>
+      {selecting && <div className="batch-toolbar">
+        <span>已选 {selected.length} 张（每次最多 50 张）{shared && " · 只能管理自己上传的照片"}</span>
+        <button disabled={!selected.length || batchBusy} onClick={() => void batch("feature_on")}>加入精选</button>
+        <button disabled={!selected.length || batchBusy} onClick={() => void batch("feature_off")}>移出精选</button>
+        <button disabled={!selected.length || batchBusy} onClick={() => void batch("share_on")}>放入共享</button>
+        <button disabled={!selected.length || batchBusy} onClick={() => void batch("share_off")}>移出共享</button>
+        {confirmTrash ? <>
+          <button className="danger" disabled={batchBusy} onClick={() => void batch("trash")}>确认移入最近删除</button>
+          <button className="quiet" onClick={() => setConfirmTrash(false)}>取消</button>
+        </> : <button disabled={!selected.length || batchBusy} onClick={() => setConfirmTrash(true)}>删除所选</button>}
+      </div>}
       {error && (
         <div className="notice error" role="alert">
           {error}
@@ -671,15 +738,15 @@ function Gallery({ client, mode }: { client: Client; mode: "featured" | "all" | 
             <Heart size={20} />
           </div>
           <h2>
-            {featured ? "还没有精选照片" : shared ? "还没有共享照片" : "还没有照片"}
+            {hasFilters ? "没有找到符合条件的照片" : featured ? "还没有精选照片" : shared ? "还没有共享照片" : "还没有照片"}
           </h2>
           <p>
-            {featured ? "可以在照片详情中加入精选。" : shared ? "上传时选择共享，或分享自己已有的照片。" : "从这里开始添加照片。"}
+            {hasFilters ? "试试更换年份、月份、地点或成员。" : featured ? "可以在照片详情中加入精选。" : shared ? "上传时选择共享，或分享自己已有的照片。" : "从这里开始添加照片。"}
           </p>
-          <a className="primary" href={featured ? "#/all" : "#/upload"}>
-            {featured ? "查看全部照片" : "添加照片"}
-            <ArrowUpRight size={18} />
-          </a>
+          {hasFilters ? <button className="primary" onClick={clearFilters}>清除筛选</button>
+            : <a className="primary" href={featured ? "#/all" : "#/upload"}>
+              {featured ? "查看全部照片" : "添加照片"}<ArrowUpRight size={18} />
+            </a>}
         </div>
       )}
       {groups.map(([month, items]) => (
@@ -694,13 +761,7 @@ function Gallery({ client, mode }: { client: Client; mode: "featured" | "all" | 
               const asset =
                 p.assets.find((a) => a.role === "thumbnail") ||
                 p.assets.find((a) => a.role === "preview");
-              return (
-                <a
-                  className="photo-card"
-                  key={p.id}
-                  href={`#/photo/${p.id}${shared ? "/shared" : ""}`}
-                  aria-label={`打开照片 ${p.location_label || dateText(p)}`}
-                >
+              const cardBody = <>
                   <div className={`photo-frame frame-${index % 4}`}>
                     {asset && urls[asset.id] ? (
                       <PrivateImage
@@ -729,13 +790,31 @@ function Gallery({ client, mode }: { client: Client; mode: "featured" | "all" | 
                     {p.live_status === "paired_unverified" && (
                       <span className="live-badge">配套视频已保存</span>
                     )}
+                    {selecting && selected.includes(p.id) && <span className="selection-badge"><Check size={19} /></span>}
                   </div>
                   <div className="photo-caption">
                     <span>{p.location_label || "一个日常瞬间"}</span>
                     <ArrowUpRight size={16} />
                     <small>{dateText(p)}{shared && p.owner_name ? ` · ${p.owner_name}` : ""}</small>
                   </div>
-                </a>
+                </>;
+              return selecting ? (
+                <button type="button" className={`photo-card selectable${selected.includes(p.id) ? " selected" : ""}`}
+                  key={p.id} disabled={shared && p.is_owner === false}
+                  aria-pressed={selected.includes(p.id)}
+                  aria-label={`选择照片 ${p.location_label || dateText(p)}`}
+                  onClick={() => {
+                    if (!selected.includes(p.id) && selected.length >= 50) {
+                      setError("每次最多选择 50 张，请先处理已选照片。");
+                      return;
+                    }
+                    setSelected((ids) => ids.includes(p.id) ? ids.filter((id) => id !== p.id) : [...ids, p.id]);
+                  }}>
+                  {cardBody}
+                </button>
+              ) : (
+                <a className="photo-card" key={p.id} href={`#/photo/${p.id}${shared ? "/shared" : ""}`}
+                  aria-label={`打开照片 ${p.location_label || dateText(p)}`}>{cardBody}</a>
               );
             })}
           </div>
@@ -753,6 +832,79 @@ function Gallery({ client, mode }: { client: Client; mode: "featured" | "all" | 
       )}
     </section>
   );
+}
+function TrashPage({ client, onChange }: { client: Client; onChange: () => void }) {
+  const [photos, setPhotos] = useState<Photo[]>([]);
+  const [urls, setURLs] = useState<Record<string, string>>({});
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busyID, setBusyID] = useState<string | null>(null);
+  const [confirmID, setConfirmID] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const active = useRef(true);
+  async function load(next?: string) {
+    setLoading(true);
+    setError("");
+    try {
+      const result = await client.request<{ photos: Photo[]; next_cursor: string | null }>(
+        `/v1/trash${next ? `?cursor=${encodeURIComponent(next)}` : ""}`,
+      );
+      if (!active.current) return;
+      setPhotos((old) => next ? [...old, ...result.photos.filter((p) => !old.some((x) => x.id === p.id))] : result.photos);
+      setCursor(result.next_cursor);
+      const ids = result.photos.map((p) => p.assets.find((a) => a.role === "thumbnail") || p.assets.find((a) => a.role === "preview"))
+        .filter(Boolean).map((a) => a!.id);
+      if (ids.length) {
+        const read = await client.request<{ urls: { id: string; url: string }[] }>("/v1/trash/read-urls", { ids });
+        if (active.current) setURLs((old) => ({ ...old, ...Object.fromEntries(read.urls.map((x) => [x.id, x.url])) }));
+      }
+    } catch (e) { if (active.current) setError(errorText(e)); }
+    finally { if (active.current) setLoading(false); }
+  }
+  useEffect(() => {
+    active.current = true;
+    void load();
+    return () => { active.current = false; };
+  }, []);
+  async function act(photoID: string, operation: "restore" | "purge") {
+    setBusyID(photoID);
+    setError("");
+    try {
+      await client.request(`/v1/trash/${photoID}${operation === "restore" ? "/restore" : ""}`,
+        operation === "restore" ? {} : undefined, operation === "restore" ? "POST" : "DELETE");
+      setPhotos((old) => old.filter((p) => p.id !== photoID));
+      setConfirmID(null);
+      onChange();
+    } catch (e) { setError(errorText(e)); }
+    finally { setBusyID(null); }
+  }
+  return <section className="trash-page">
+    <a className="back-link" href="#/me"><ArrowLeft size={17} /> 返回我的资料</a>
+    <h1>最近删除</h1>
+    <p>删除的照片保留 30 天，之后自动清理。保留期间仍占用相册容量。</p>
+    {error && <p className="error" role="alert">{error} <button className="quiet" onClick={() => void load()}>重试</button></p>}
+    {!loading && !photos.length && !error && <div className="empty-state"><Trash2 size={36} /><h2>最近没有删除的照片</h2></div>}
+    <div className="trash-grid">{photos.map((p) => {
+      const asset = p.assets.find((a) => a.role === "thumbnail") || p.assets.find((a) => a.role === "preview");
+      const remaining = p.deleted_at ? Math.max(0, Math.ceil((new Date(p.deleted_at).getTime() + 30 * 86400000 - Date.now()) / 86400000)) : 0;
+      return <article className="trash-card" key={p.id}>
+        <div className="trash-image">{asset && urls[asset.id] ? <img src={urls[asset.id]} alt="" /> : <Images size={28} />}</div>
+        <div className="trash-card-body">
+          <strong>{p.location_label || dateText(p)}</strong>
+          <small>{remaining ? `还可恢复 ${remaining} 天` : "即将清理"}</small>
+          <div className="trash-actions">
+            <button className="secondary" disabled={busyID !== null || remaining === 0} onClick={() => void act(p.id, "restore")}>恢复</button>
+            {confirmID === p.id ? <>
+              <button className="danger" disabled={busyID !== null} onClick={() => void act(p.id, "purge")}>确认永久删除</button>
+              <button className="quiet" onClick={() => setConfirmID(null)}>取消</button>
+            </> : <button className="quiet" disabled={busyID !== null} onClick={() => setConfirmID(p.id)}>永久删除</button>}
+          </div>
+        </div>
+      </article>;
+    })}</div>
+    {loading && <p className="loading"><RefreshCw size={18} className="spin" /> 正在加载…</p>}
+    {cursor && !loading && <button className="load-more" onClick={() => void load(cursor)}>查看更多 <ChevronRight size={16} /></button>}
+  </section>;
 }
 function PrivateImage({
   url,
@@ -1363,7 +1515,7 @@ function Detail({
                     {deleteConfirm ? (
                       <>
                         <p>
-                          永久删除这张照片及所有素材？没有回收站，已发出的授权到期后会清理文件。
+                          将这张照片移入最近删除？30 天内可以恢复，之后会自动清理。
                         </p>
                         <button
                           className="danger"
@@ -1380,7 +1532,7 @@ function Detail({
                             })
                           }
                         >
-                          确认永久删除
+                          移入最近删除
                         </button>
                         <button
                           className="quiet"
@@ -1991,7 +2143,8 @@ function MyPage({ me, client, onChange, logout }: { me: any; client: Client; onC
             ` 待完成或待清理预留 ${formatBytes(me.reserved_bytes)}。`}
         </p>
       </div>
-      <p className="fineprint">删除没有回收站，请保留一份独立原件备份。</p>
+      <a className="secondary trash-link" href="#/trash"><Trash2 size={17} /> 最近删除 <ChevronRight size={17} /></a>
+      <p className="fineprint">最近删除保留 30 天。重要照片仍建议另外备份一份原件。</p>
       <button className="secondary logout" onClick={logout}>
         <LogOut size={17} />
         退出登录

@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import path from "node:path";
 import { readFile } from "node:fs/promises";
-test("login, upload, original download, edit, feature, delete, and account isolation", async ({
+test("login, upload, original download, edit, batch, trash, restore, and account isolation", async ({
   page,
 }, testInfo) => {
   const errors: string[] = [];
@@ -94,6 +94,13 @@ test("login, upload, original download, edit, feature, delete, and account isola
   await expect(page.locator(".photo-card")).toHaveCount(3);
   await page.goto("/#/shared");
   await expect(page.locator(".photo-card")).toHaveCount(1);
+  await page.getByLabel("筛选上传成员").selectOption("22222222-2222-4222-8222-222222222222");
+  await expect(page.locator(".photo-card")).toHaveCount(0);
+  await page.getByLabel("筛选上传成员").selectOption("11111111-1111-4111-8111-111111111111");
+  await expect(page.locator(".photo-card")).toHaveCount(1);
+  await page.getByRole("button", { name: "批量管理" }).click();
+  await expect(page.getByRole("button", { name: /选择照片/ })).toBeDisabled();
+  await page.getByRole("button", { name: "完成选择" }).click();
   await page.locator(".photo-card").click();
   await expect(page.getByText("家庭成员可见")).toBeVisible();
   await expect(page.getByRole("button", { name: "删除照片", exact: true })).toHaveCount(0);
@@ -115,17 +122,52 @@ test("login, upload, original download, edit, feature, delete, and account isola
   await page.getByRole("button", { name: "退出登录" }).click();
   await page.getByRole("button", { name: "我的示例相册" }).click();
   await page.goto("/#/all");
+  await page.getByRole("button", { name: "批量管理" }).click();
+  await page.getByRole("button", { name: `选择照片 专属回忆-${testInfo.project.name}` }).click();
+  await page.getByRole("button", { name: "移出共享" }).click();
+  await expect(page.getByRole("button", { name: "批量管理" })).toBeVisible();
   await page
     .getByRole("link", { name: `打开照片 专属回忆-${testInfo.project.name}` })
     .click();
-  await page.getByRole("button", { name: "移出共享相册" }).click();
+  await expect(page.getByRole("button", { name: "放入共享相册" })).toBeVisible();
   await page.getByRole("button", { name: "删除照片", exact: true }).click();
-  await page.getByRole("button", { name: "确认永久删除" }).click();
+  await page.getByRole("button", { name: "移入最近删除" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByText(`专属回忆-${testInfo.project.name}`)).toHaveCount(
     0,
   );
+  await page.goto("/#/me");
+  await page.getByRole("link", { name: /最近删除/ }).click();
+  await expect(page.getByRole("heading", { name: "最近删除" })).toBeVisible();
+  await expect(page.getByText(`专属回忆-${testInfo.project.name}`)).toBeVisible();
+  await page.screenshot({ path: `.local/trash-${testInfo.project.name}.png` });
+  const trashCard = page.locator(".trash-card", { hasText: `专属回忆-${testInfo.project.name}` });
+  await trashCard.getByRole("button", { name: "恢复", exact: true }).click();
+  await expect(trashCard).toHaveCount(0);
+  await page.goto("/#/all");
+  await expect(page.getByRole("link", { name: `打开照片 专属回忆-${testInfo.project.name}` })).toBeVisible();
+  await page.getByRole("link", { name: `打开照片 专属回忆-${testInfo.project.name}` }).click();
+  await page.getByRole("button", { name: "删除照片", exact: true }).click();
+  await page.getByRole("button", { name: "移入最近删除" }).click();
+  await expect(page.getByRole("dialog", { name: "照片详情" })).toHaveCount(0);
+  await page.goto("/#/trash");
+  const purgeCard = page.locator(".trash-card", { hasText: `专属回忆-${testInfo.project.name}` });
+  await purgeCard.getByRole("button", { name: "永久删除", exact: true }).click();
+  await purgeCard.getByRole("button", { name: "确认永久删除" }).click();
+  await expect(page.getByText(`专属回忆-${testInfo.project.name}`)).toHaveCount(0);
   expect(errors).toEqual([]);
+});
+test("year, month, and location search reaches the whole album", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "我的示例相册" }).click();
+  await page.goto("/#/all");
+  await page.getByLabel("筛选年份").selectOption("2026");
+  await page.getByLabel("筛选月份").selectOption("9");
+  await page.getByLabel("筛选地点").fill("远方的山");
+  await expect(page.locator(".photo-card")).toHaveCount(1);
+  await expect(page.getByRole("link", { name: /远方的山/ })).toBeVisible();
+  await page.getByRole("button", { name: "清除筛选" }).click();
+  await expect.poll(() => page.locator(".photo-card").count()).toBeGreaterThanOrEqual(12);
 });
 test("iPhone opens a save popup with the original image and a share fallback", async ({ page }, testInfo) => {
   await page.addInitScript(() => {
