@@ -1,10 +1,10 @@
 # 从零部署
 
-独立 Supabase `album` 项目已按顺序执行三次迁移，包括 `202610130002_trash_batch_search.sql`，并关闭公众注册和匿名登录。Cloudflare `family-album` 私有桶已设置 CORS，Worker 与 Pages 已部署；先前合成素材云端冒烟测试通过。首位正式成员已使用，第二、三位的邀请已发出；第四位成员与真实设备验收仍待完成。以下步骤用于核对并继续部署，不复用其他网站的账号或数据库。不要把真实密钥提交到 Git 或聊天记录。
+独立 Supabase `album` 项目已按顺序执行四次迁移，最新为 `202610130003_shared_comments.sql`，并关闭公众注册和匿名登录。Cloudflare `family-album` 私有桶已设置 CORS，Worker 与 Pages 已部署；合成素材云端冒烟测试通过。首位正式成员已使用，第二、三位的邀请已发出；第四位成员与真实设备验收仍待完成。以下步骤用于核对并继续部署，不复用其他网站的账号或数据库。不要把真实密钥提交到 Git 或聊天记录。
 
 ## 1. Supabase
 
-项目 `nqjdngemhgmahqjuuxwx` 已在 SQL Editor 执行三份迁移，**不要重复执行**。`202610130002_trash_batch_search.sql` 于 2026-10-13 执行成功；只读复查得到 `trashed_photos=0`、`album_v3_action=1`、`album_v3_maintenance=1`。发布顺序为**先运行迁移，再部署 Worker，最后部署 Pages**。迁移在事务中添加删除时间、私有回收站状态、收紧的 RLS、受控操作与到期清理函数；未修改已有照片的状态。`profiles`、`photos`、`photo_assets` 的 RLS 及函数权限仍应定期审计；anon 无业务读取权限，`authenticated` 只有本人且非最近删除的 SELECT，`album_action`、`album_v2_action`、`album_v3_action` 与维护函数仅 service role 可执行。共享照片只能通过已验证成员身份的 Worker 读取，现有照片默认不共享。
+项目 `nqjdngemhgmahqjuuxwx` 已在 SQL Editor 执行四份迁移，**不要重复执行**。最新的 `202610130003_shared_comments.sql` 于 2026-10-13 执行成功，新增共享评论表和 `album_v4_action`，未改动已有照片。发布顺序为**先运行迁移，再部署 Worker，最后部署 Pages**。`profiles`、`photos`、`photo_assets`、`photo_comments` 的 RLS 及函数权限仍应定期审计；anon 无业务读取权限，`authenticated` 只有本人且非最近删除的照片 SELECT；评论通过已鉴权的 Worker 和仅 service role 可执行的 RPC 访问。现有照片默认不共享。
 
 Auth 的公众注册与匿名登录已关闭，刷新设置页后再次核对；账号由管理员控制台或受控脚本建立，最多启用四个成员。首位成员 `xuan` 已用管理员控制台创建并在正式站点登录、上传一张照片。之后可用 `npm run invite -- 家人邮箱 昵称` 生成私密邀请链接，让受邀人自己设置密码；具体发送与清理步骤见 [维护说明](OPERATIONS.md)。Supabase 的前端 publishable key 可公开；后台 secret key 已在本机私密环境验证管理员接口，后续只能放在 Worker secrets 和本地私密环境中。[Supabase Auth](https://supabase.com/docs/guides/auth)、[API keys](https://supabase.com/docs/guides/getting-started/api-keys)、[RLS](https://supabase.com/docs/guides/database/postgres/row-level-security)。
 
@@ -14,15 +14,15 @@ Auth 的公众注册与匿名登录已关闭，刷新设置页后再次核对；
 
 ## 3. Worker
 
-`apps/api/wrangler.toml` 已设置正式前端 origin `https://xuan9527zz.github.io`，并列出必须存在的 Worker secrets：`SUPABASE_URL`、`SUPABASE_PUBLISHABLE_KEY`、`SUPABASE_SECRET_KEY`、`R2_ACCOUNT_ID`、`R2_BUCKET_NAME`、`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY`。三项密钥只由项目所有者粘贴在本机 Git 忽略的 `apps/api/.dev.vars`，再用 `npx wrangler deploy --config apps/api/wrangler.toml --secrets-file apps/api/.dev.vars` 上传到 Worker。不要通过聊天、命令行参数或 Git 提交密钥。当前 Worker URL 为 `https://family-album-api.xuan1996wyx.workers.dev`，已部署版本 `2b6823c8-6b6b-4faf-815d-3ba8ad9f99c0`，每 6 小时执行一次到期清理。
+`apps/api/wrangler.toml` 已设置正式前端 origin `https://xuan9527zz.github.io`，并列出必须存在的 Worker secrets：`SUPABASE_URL`、`SUPABASE_PUBLISHABLE_KEY`、`SUPABASE_SECRET_KEY`、`R2_ACCOUNT_ID`、`R2_BUCKET_NAME`、`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY`。密钥只保存在本机 Git 忽略的 `apps/api/.dev.vars` 和 Cloudflare Worker secrets，不通过聊天、命令行参数或 Git 提交。当前 Worker URL 为 `https://family-album-api.xuan1996wyx.workers.dev`，已部署版本 `fc21e328-d30c-47b9-a249-8403bccb110a`，每 6 小时执行一次到期清理。
 
-Worker 的 `/health` 返回 200；不带凭据访问 `/v1/photos` 与 `/v1/trash` 均返回 401，非允许来源返回 403，允许来源 OPTIONS 预检返回 204。正式登录页面的最近删除入口可正常读取空列表；还需用真实测试账号验证删除与恢复的端到端操作。后续仅更新代码时可执行 `npm run deploy:api`，已有 secrets 会保留。GitHub Actions 的 Worker 部署工作流是手动触发，需仓库 secret `CLOUDFLARE_API_TOKEN` 与变量 `CLOUDFLARE_ACCOUNT_ID`；Worker 的业务 secrets 仍需在 Cloudflare 安全设置中输入，不由工作流生成。
+Worker 的 `/health` 返回 200，匿名 `/v1/photos` 返回 401；网关相同检查也通过。后续仅更新代码时可执行 `npm run deploy:api`，已有 secrets 会保留。[Deploy Worker #1](https://github.com/xuan9527zz/album/actions/runs/38361893577) 因仓库尚未设置 `CLOUDFLARE_API_TOKEN` 和 `CLOUDFLARE_ACCOUNT_ID` 而失败；本次改用本机已登录的 Wrangler 成功发布。不要把本机 OAuth 凭据复制到仓库。
 
-2026-10-13 增加 `supabase/functions/album-gateway/index.js`：用户无 VPN 时 `workers.dev` 不可达，而同一设备能访问 Supabase 与 R2。Supabase Edge Function 将 `/health` 和 `/v1/*` 转发至固定 Worker 地址，不接受任意目标 URL；浏览器来源限制为正式 Pages origin，业务请求仍由 Worker 核验 Supabase JWT。该函数在项目控制台已部署并关闭不兼容新密钥的旧版 JWT 入口检查；未登录的 `/v1/photos` 仍返回 401。GitHub Actions 变量 `VITE_API_BASE_URL` 现为 `https://nqjdngemhgmahqjuuxwx.supabase.co/functions/v1/album-gateway`。R2 私有桶和直连签名 URL 没有改动。以后修改网关代码，需要重新部署该 Edge Function；仅推送 GitHub 仓库不会自动更新函数。[Supabase Edge Functions](https://supabase.com/docs/guides/functions/quickstart)、[函数认证](https://supabase.com/docs/guides/functions/auth)、[R2 签名 URL 域名限制](https://developers.cloudflare.com/r2/api/s3/presigned-urls/)。
+`supabase/functions/album-gateway/index.js` 将 `/health` 和 `/v1/*` 转发至固定 Worker，业务请求仍由 Worker 核验 Supabase JWT。新版把业务响应中的 R2 短时签名链接包装为固定公开 HTTPS 地址下的 `/media?target=...`，仅允许固定账户、固定桶、带签名的 GET/PUT，流式传输图片和上传文件；R2 仍核验签名，私有桶未公开。不能从 Edge Function 的 `request.url` 推导浏览器链接 origin：Supabase 内部可能传入 HTTP，导致 HTTPS 页面拒绝图片和上传。浏览器来源限制为正式 Pages origin。函数在 Supabase 控制台单独部署，旧版 JWT 入口检查关闭；仅推送 GitHub 仓库不会自动更新函数。合成 1 MiB 对象经网关 PUT/GET 字节一致，测试对象已清理。GitHub Actions 变量 `VITE_API_BASE_URL` 为 `https://nqjdngemhgmahqjuuxwx.supabase.co/functions/v1/album-gateway`。[Supabase Edge Functions](https://supabase.com/docs/guides/functions/quickstart)、[函数认证](https://supabase.com/docs/guides/functions/auth)、[R2 签名 URL 域名限制](https://developers.cloudflare.com/r2/api/s3/presigned-urls/)。
 
 ## 4. GitHub Pages
 
-仓库 `xuan9527zz/album` 只放代码和合成测试素材。Settings → Pages 已选择 **GitHub Actions**；仓库 Variables 已设置 `VITE_SUPABASE_URL`、`VITE_SUPABASE_PUBLISHABLE_KEY`、`VITE_API_BASE_URL`。[Deploy Pages #9](https://github.com/xuan9527zz/album/actions/runs/38349112528) 从提交 `c5bf299` 构建并发布成功，34 项测试全部通过；正式站点为 `https://xuan9527zz.github.io/album/`，生产 bundle 已核对使用 Supabase 网关地址。已登录页面显示批量管理，个人资料有最近删除入口，最近删除可正常显示空列表。后续前端代码更新后仍需手动触发此工作流发布。
+仓库 `xuan9527zz/album` 只放代码和合成测试素材。Settings → Pages 已选择 **GitHub Actions**；仓库 Variables 已设置 `VITE_SUPABASE_URL`、`VITE_SUPABASE_PUBLISHABLE_KEY`、`VITE_API_BASE_URL`。[Deploy Pages #14](https://github.com/xuan9527zz/album/actions/runs/38364461839) 从提交 `ab3ffd1` 构建最终网站；正式站点为 `https://xuan9527zz.github.io/album/`。后续前端代码更新后仍需手动触发此工作流发布。
 
 Supabase Auth 的 Site URL 和一条精确 Redirect URL 已设为上述 Pages URL。Worker `ALLOWED_ORIGINS` 与 R2 CORS 为实际 origin `https://xuan9527zz.github.io`。Pages 可公开静态源码，但业务记录与文件必须受后台权限保护。[GitHub Pages](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages)。
 

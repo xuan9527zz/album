@@ -13,11 +13,15 @@
 3. 上传后 Worker 使用 HEAD 核验大小、类型和单次 PUT 的 MD5 ETag，再用小范围 GET 检查内容签名。只有完成核验，数据库事务才把预留用量转为已保存用量并登记资产。
 4. 浏览器另行生成预览和缩略图，分别上传。HEIC 解码失败时原件仍可下载，详情提供预览补传。补传新的浏览版本时旧版本保留计费，直到到期清理确认旧对象已删。
 
-该实现使用 R2 文档列出的有条件 `PutObject`，取代计划书的 staging + 复制。它依赖真实 R2 对 `If-None-Match` 与 Content-MD5 的行为；部署前必须运行云端冒烟测试并观察重放返回 412 和下载 SHA256 一致。与 R2 交互目前没有真实账户验收，不可把本地对象模拟结果当作云端保证。[R2 S3 兼容说明](https://developers.cloudflare.com/r2/api/s3/api/)和[预签名 URL 说明](https://developers.cloudflare.com/r2/api/s3/presigned-urls/)是核验依据。
+该实现使用 R2 文档列出的有条件 `PutObject`，取代计划书的 staging + 复制。真实 R2 的合成素材冒烟测试已验证 `If-None-Match` 重放返回 412、Content-MD5 校验和下载 SHA256 一致；真实 iPhone 网络仍需另行验收。[R2 S3 兼容说明](https://developers.cloudflare.com/r2/api/s3/api/)和[预签名 URL 说明](https://developers.cloudflare.com/r2/api/s3/presigned-urls/)是核验依据。
 
 签名有效期和已批准 key 记录于 `upload_items`。取消或删除立即停止新链接，但等待所有旧 PUT 授权过期加 60 秒后才清理对象、释放预算。清理只触碰数据库已登记的 key，可重试，且先删除 R2 再更新账本。若数据库更新失败，下次重试再次删除同 key 后收敛。项目默认预算 8 GB、提醒 6 GB；这是应用限额，不是供应商账单硬上限。预留、已保存与旧浏览版本均计入项目容量。
 
 Worker 给缩略图和预览图签发短时 GET；原件下载需独立请求。签名 URL 不写入数据库或日志。R2 对象通过 `Cache-Control: no-store` 保存，PWA Service Worker 只缓存同域、无查询参数、白名单里的公开静态资源。浏览器和 R2 的真实缓存行为仍需云端验收。
+
+无 VPN 网络中的浏览器通过 Supabase Edge Function 的固定 `/media` 路由读取、上传私有 R2 文件。网关仅接受本账户、本桶的短时签名 URL，流式转发 GET/PUT；R2 仍核验签名和上传校验头。媒体链接使用固定公开 HTTPS origin，避免 Supabase 内部 HTTP 请求地址泄漏给浏览器后遭混合内容拦截。Worker 把列表缩略图授权与列表记录一起返回，把预览图授权与详情一起返回，减少浏览器跨网关请求次数。前端只在当前页面内存中保存缩略图和预览图的 Blob URL，合计上限 64 MiB；退出登录、关闭页面或进程结束后释放，不把私人图片写入 Service Worker、IndexedDB 或 Cache API。超出缓存上限的图片可能在再次打开时重新下载。
+
+`202610130003_shared_comments.sql` 增加只经后台 RPC 访问的共享评论。每条去除首尾空白后最多 30 字，单张最多 200 条；任何启用成员可读和发布，评论作者及照片主人可删除。取消共享、移入最近删除后接口不返回评论；恢复共享后原评论会再次出现。评论只占少量数据库文本空间，不包含图片附件。
 
 ## Live 与恢复
 
@@ -27,6 +31,6 @@ Worker 给缩略图和预览图签发短时 GET；原件下载需独立请求。
 
 ## 已知需云端确认的边界
 
-- R2 签名中的 Content-Length、Content-MD5、If-None-Match 与 CORS 的实际组合行为。
+- R2 签名和 `/media` 网关已用合成对象验证；仍需用无 VPN 的真实 iPhone 分别测量图片首次打开、返回缓存、原件上传和下载。
 - iPhone Safari 相册选择的格式转换、HEIC 解码、文件名、下载到“文件”App 的结果。
 - 四个真实用户和中国大陆直连的首屏、预览、上传速度；云项目空闲、免费额度和费用以当时平台规则为准。

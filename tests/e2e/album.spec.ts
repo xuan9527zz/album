@@ -185,10 +185,12 @@ test("photo detail swipes left to the previous image and right to the next", asy
   expect(new URL(page.url()).hash).toBe(cards[1]);
   async function swipe(from: number, to: number) {
     await page.locator(".detail-image").evaluate((element, points) => {
-      const start = new Touch({ identifier: 1, target: element, clientX: points.from, clientY: 240 });
-      const end = new Touch({ identifier: 1, target: element, clientX: points.to, clientY: 240 });
-      element.dispatchEvent(new TouchEvent("touchstart", { bubbles: true, changedTouches: [start], touches: [start] }));
-      element.dispatchEvent(new TouchEvent("touchend", { bubbles: true, changedTouches: [end], touches: [] }));
+      // WebKit does not expose a constructible Touch, but React only reads changedTouches.
+      for (const [type, x] of [["touchstart", points.from], ["touchend", points.to]] as const) {
+        const event = new Event(type, { bubbles: true });
+        Object.defineProperty(event, "changedTouches", { value: [{ clientX: x, clientY: 240 }] });
+        element.dispatchEvent(event);
+      }
     }, { from, to });
   }
   if (testInfo.project.name === "desktop-chrome") {
@@ -199,6 +201,7 @@ test("photo detail swipes left to the previous image and right to the next", asy
   } else {
     await swipe(280, 80);
     await expect.poll(() => new URL(page.url()).hash).toBe(cards[0]);
+    await expect(page.getByRole("button", { name: "上一张照片" })).toHaveCount(0);
     await swipe(80, 280);
     await expect.poll(() => new URL(page.url()).hash).toBe(cards[1]);
   }
