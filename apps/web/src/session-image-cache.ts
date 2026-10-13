@@ -26,7 +26,7 @@ export async function imageInSession(id: string, source: string): Promise<string
   const task = (async () => {
     const started = generation;
     const response = await fetch(source, { cache: "no-store", referrerPolicy: "no-referrer" });
-    if (!response.ok) throw new Error("IMAGE_UNAVAILABLE");
+    if (!response.ok) throw new Error(`IMAGE_HTTP_${response.status}`);
     const blob = await response.blob();
     if (started !== generation || blob.size > MAX_ENTRY || blob.size + used > LIMIT)
       return source; // Large previews keep the bounded memory cache small.

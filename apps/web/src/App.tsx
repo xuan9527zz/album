@@ -959,8 +959,9 @@ function PrivateImage({
       setSrc("");
       imageInSession(assetID, url).then((imageURL) => {
         if (live) setSrc(imageURL);
-      }).catch(() => {
+      }).catch((error) => {
         if (!live) return;
+        console.warn("IMAGE_LOAD_FAILED", error instanceof Error ? error.message : "unknown");
         if (attempt < 1) {
           setAttempt(1);
           void retryRef.current();
@@ -988,6 +989,7 @@ function PrivateImage({
       loading={eager ? "eager" : "lazy"}
       referrerPolicy="no-referrer"
       onError={() => {
+        console.warn("IMAGE_DECODE_FAILED");
         if (attempt < 1) {
           setAttempt((n) => n + 1);
           void retryRef.current();
