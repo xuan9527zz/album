@@ -72,7 +72,7 @@ test("studio saves BGM and interval and anonymous guests play both with one tap"
   await expect(viewer.locator(".story-player-count")).toContainText("01 /");
   await viewer.clock.fastForward(150);
   await expect(viewer.locator(".story-player-count")).toContainText("02 /");
-  const count = saved.zine_config.pages.length * 2;
+  const count = saved.zine_config.pages.length;
   for (let i = 3; i <= count; i++) {
     await viewer.clock.fastForward(4000);
     await expect(viewer.locator(".story-player-count")).toContainText(

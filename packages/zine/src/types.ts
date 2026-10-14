@@ -27,6 +27,12 @@ export interface ZinePage {
   layout: ZineLayoutId;
   photo_ids: Array<string | null>;
   texts: Record<string, string>;
+  photo_crops?: Array<ZineCrop | null>;
+}
+export interface ZineCrop {
+  zoom: number;
+  x: number;
+  y: number;
 }
 export interface ZineConfig {
   version: 1;

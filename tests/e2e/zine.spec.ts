@@ -113,14 +113,11 @@ test("edits fixed zine pages, saves manual text, reads live metadata and loads l
   ).toBeVisible();
   await page.getByText("查看文字与照片资料", { exact: true }).click();
   await page.getByRole("button", { name: "下一页", exact: true }).click();
-  const steps =
-    saved.zine_config.pages.length *
-    (testInfo.project.name !== "desktop-chrome" ? 2 : 1);
+  const steps = saved.zine_config.pages.length;
   await expect(page.locator(".story-player-count")).toHaveText(
     `02 / ${String(steps).padStart(2, "0")}`,
   );
-  if (testInfo.project.name === "phone-chrome")
-    await expect(page.locator(".zine-view-right")).toBeVisible();
+  await expect(page.locator(".zine-slide-in .zine-view-spread")).toBeVisible();
 
   // A subsequent photo edit updates the automatic text without changing the stored layout.
   const photo = saved.photos.find(

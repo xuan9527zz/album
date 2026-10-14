@@ -156,7 +156,7 @@ export function StoryArea({
   route: string;
 }) {
   const parts = route.split("/").filter(Boolean);
-  if (parts[1] === "new") return <StoryEditor client={client} />;
+  if (parts[1] === "new") return <StoryEditor client={client} initialSource={parts[2] === "shared" ? "shared" : "mine"} />;
   if (parts[1] && parts[2] === "edit")
     return <StoryEditor key={parts[1]} client={client} storyID={parts[1]} />;
   if (parts[1])
@@ -263,9 +263,11 @@ function StoryList({ client }: { client: Client }) {
 function StoryEditor({
   client,
   storyID,
+  initialSource = "mine",
 }: {
   client: Client;
   storyID?: string;
+  initialSource?: "mine" | "shared";
 }) {
   const [title, setTitle] = useState("");
   const [template, setTemplate] = useState<ZineTemplate>("zine-city");
@@ -280,7 +282,7 @@ function StoryEditor({
   );
   const [panel, setPanel] = useState<"photos" | "design" | "music">("photos");
   const themeDrafts = useRef(new Map<ZineTemplate, ZineConfig>());
-  const [source, setSource] = useState<"mine" | "shared">("mine");
+  const [source, setSource] = useState<"mine" | "shared">(initialSource);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [urls, setURLs] = useState<Record<string, string>>({});
   const [cursor, setCursor] = useState<string | null>(null);
@@ -585,6 +587,7 @@ function StoryEditor({
               {photos.map((photo) => (
                 <button
                   key={photo.id}
+                  data-photo-id={photo.id}
                   type="button"
                   className={`story-pick${selectedIDs.has(photo.id) ? " selected" : ""}`}
                   aria-label={`${selectedIDs.has(photo.id) ? "移出" : "选择"}照片 ${photo.title || "未命名"}`}
@@ -601,6 +604,7 @@ function StoryEditor({
                   </span>
                   <span className="story-pick-name">
                     {photo.title || "未命名照片"}
+                    {source === "shared" && photo.owner_name && <small>{photo.owner_name}</small>}
                   </span>
                 </button>
               ))}

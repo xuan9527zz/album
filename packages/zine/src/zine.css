@@ -53,6 +53,25 @@
 .zine-photo {
   overflow: hidden;
 }
+.zine-photo-frame {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.zine-photo-content {
+  position: absolute;
+}
+.zine-photo-adjustable {
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+}
+.zine-photo-adjustable:active {
+  cursor: grabbing;
+}
+.zine-photo-adjustable img {
+  pointer-events: none;
+}
 .zine-photo img {
   display: block !important;
   width: 100% !important;

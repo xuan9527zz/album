@@ -177,7 +177,7 @@ export function createHandler(d: Dependencies) {
           p_data: data,
         });
       const callV8 = (action: string, data: unknown = {}) =>
-        d.db.call("album_v10_action", {
+        d.db.call("album_v11_action", {
           p_owner: owner,
           p_action: action,
           p_data: data,

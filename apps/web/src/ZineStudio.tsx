@@ -25,18 +25,6 @@ import type {
 import "./zine-studio.css";
 import { FileAudioPlayer, type AudioControls } from "./FileAudioPlayer";
 
-function usePhone() {
-  const [phone, setPhone] = useState(
-    () => window.matchMedia("(max-width: 680px)").matches,
-  );
-  useEffect(() => {
-    const query = window.matchMedia("(max-width: 680px)");
-    const update = () => setPhone(query.matches);
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  }, []);
-  return phone;
-}
 export function ZineEditor({
   template,
   config,
@@ -54,8 +42,6 @@ export function ZineEditor({
 }) {
   const collection = getZineCollection(template);
   const [selectedPage, setSelectedPage] = useState(0);
-  const phone = usePhone();
-  const [half, setHalf] = useState<"left" | "right">("left");
   const index = Math.min(selectedPage, Math.max(0, config.pages.length - 1));
   const page = config.pages[index];
   const layout = page && getZineLayout(page.layout);
@@ -90,7 +76,6 @@ export function ZineEditor({
             value={index}
             onChange={(e) => {
               setSelectedPage(Number(e.target.value));
-              setHalf("left");
             }}
           >
             {config.pages.map((p, i) => (
@@ -151,6 +136,7 @@ export function ZineEditor({
                   ...page,
                   layout: next.id,
                   texts,
+                  photo_crops: undefined,
                   photo_ids: Array.from(
                     { length: next.slots },
                     (_, i) => page.photo_ids[i] || null,
@@ -165,39 +151,29 @@ export function ZineEditor({
               ))}
             </select>
           </label>
-          {phone && (
-            <div className="zine-half-controls">
-              <button
-                type="button"
-                aria-pressed={half === "left"}
-                onClick={() => setHalf("left")}
-              >
-                预览左页
-              </button>
-              <button
-                type="button"
-                aria-pressed={half === "right"}
-                onClick={() => setHalf("right")}
-              >
-                预览右页
-              </button>
-            </div>
-          )}
           <ZineSpread
             collection={collection}
             page={page}
             photos={photos}
             title={title || "你的影集"}
             index={index}
-            view={phone ? half : "spread"}
+            view="spread"
             renderPhoto={renderPhoto}
             background={config.background_color}
+            onPhotoCrop={(slot, crop) =>
+              update({
+                ...page,
+                photo_crops: page.photo_ids.map((_, i) =>
+                  i === slot ? crop : page.photo_crops?.[i] || null,
+                ),
+              })
+            }
           />
           <div className="zine-edit-columns">
             <div>
               <h3>照片位置</h3>
               <p className="zine-help">
-                标题、拍摄时间和地点跟随这里选择的照片。
+                在照片上双指缩放、单指移动；电脑可拖动。标题、时间和地点跟随所选照片。
               </p>
               {page.photo_ids.map((id, slot) => (
                 <label key={slot}>
@@ -209,6 +185,9 @@ export function ZineEditor({
                         ...page,
                         photo_ids: page.photo_ids.map((v, i) =>
                           i === slot ? e.target.value || null : v,
+                        ),
+                        photo_crops: page.photo_ids.map((_, i) =>
+                          i === slot ? null : page.photo_crops?.[i] || null,
                         ),
                       })
                     }
@@ -224,6 +203,45 @@ export function ZineEditor({
                       </option>
                     ))}
                   </select>
+                  {id && (
+                    <div className="zine-crop-controls">
+                      <input
+                        type="range"
+                        aria-label={`照片位置 ${slot + 1} 缩放`}
+                        min="1"
+                        max="5"
+                        step="0.01"
+                        value={page.photo_crops?.[slot]?.zoom || 1}
+                        onChange={(e) =>
+                          update({
+                            ...page,
+                            photo_crops: page.photo_ids.map((_, i) =>
+                              i === slot
+                                ? {
+                                    zoom: Number(e.target.value),
+                                    x: page.photo_crops?.[slot]?.x || 0,
+                                    y: page.photo_crops?.[slot]?.y || 0,
+                                  }
+                                : page.photo_crops?.[i] || null,
+                            ),
+                          })
+                        }
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          update({
+                            ...page,
+                            photo_crops: page.photo_ids.map((_, i) =>
+                              i === slot ? null : page.photo_crops?.[i] || null,
+                            ),
+                          })
+                        }
+                      >
+                        重置取景
+                      </button>
+                    </div>
+                  )}
                 </label>
               ))}
               <div className="zine-auto-fields" aria-label="自动照片资料">
@@ -336,7 +354,6 @@ export function ZinePlayer({
   legacyMusic?: ReactNode;
   publicView?: boolean;
 }) {
-  const phone = usePhone();
   const config = useMemo(
     () => story.zine_config || newZineConfig(story.photos, story.template),
     [story],
@@ -347,15 +364,14 @@ export function ZinePlayer({
   const [playing, setPlaying] = useState(false);
   const [direction, setDirection] = useState("next");
   const [previousStep, setPreviousStep] = useState<number | null>(null);
-  const steps = pages.length * (phone ? 2 : 1);
+  const steps = pages.length;
   const index = Math.min(step, Math.max(0, steps - 1));
-  const pageIndex = phone ? Math.floor(index / 2) : index;
+  const pageIndex = index;
   const page = pages[pageIndex];
   const touch = useRef<{ x: number; y: number } | null>(null);
   const music = useRef<AudioControls>(null),
     playAttempt = useRef(0);
   const [starting, setStarting] = useState(false);
-  const previousPhone = useRef(phone);
   const seconds = config.slide_seconds || 6;
   function pausePlayback() {
     playAttempt.current++;
@@ -387,13 +403,6 @@ export function ZinePlayer({
     setDirection(next > index ? "next" : "previous");
     setStep(next);
   }
-  useEffect(() => {
-    if (previousPhone.current === phone) return;
-    previousPhone.current = phone;
-    setStep(0);
-    pausePlayback();
-    setPreviousStep(null);
-  }, [phone]);
   useEffect(() => {
     if (previousStep === null) return;
     const timer = window.setTimeout(() => setPreviousStep(null), 450);
@@ -486,12 +495,12 @@ export function ZinePlayer({
           [previousStep, index]
             .filter((value): value is number => value !== null)
             .map((value, layer) => {
-              const frameIndex = phone ? Math.floor(value / 2) : value;
+              const frameIndex = value;
               const framePage = pages[frameIndex];
               const leaving = previousStep !== null && layer === 0;
               return (
                 <div
-                  key={`${framePage.id}/${phone ? value % 2 : "spread"}`}
+                  key={framePage.id}
                   aria-hidden={leaving || undefined}
                   className={`zine-player-turn zine-slide-${leaving ? "out" : previousStep === null ? "still" : "in"} zine-effect-${story.transition} story-direction-${direction}`}
                 >
@@ -501,7 +510,7 @@ export function ZinePlayer({
                     photos={story.photos}
                     title={story.title}
                     index={frameIndex}
-                    view={phone ? (value % 2 ? "right" : "left") : "spread"}
+                    view="spread"
                     renderPhoto={renderPhoto}
                     background={config.background_color}
                     onReadOpen={pausePlayback}

@@ -11,6 +11,8 @@ import { ZineFonts, zineFontFamilies } from "./ZineFonts";
 import type { ZineCollection, ZineNode, ZinePage, ZinePhoto } from "./types";
 import "./zine.css";
 import { contrastInk } from "./color";
+import { ZinePhotoFrame } from "./ZinePhotoFrame";
+import type { ZineCrop } from "./types";
 
 function FittedText({
   node,
@@ -110,6 +112,7 @@ export function ZineSpread({
   renderPhoto,
   onReadOpen,
   background,
+  onPhotoCrop,
 }: {
   collection: ZineCollection;
   page: ZinePage;
@@ -120,6 +123,7 @@ export function ZineSpread({
   renderPhoto?: (photo: ZinePhoto) => ReactNode;
   onReadOpen?: () => void;
   background?: string;
+  onPhotoCrop?: (slot: number, crop: ZineCrop) => void;
 }) {
   const frame = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(720);
@@ -203,6 +207,7 @@ export function ZineSpread({
             return (
               <figure
                 key={node.id}
+                data-photo-slot={node.slot || 0}
                 className="zine-node zine-photo"
                 style={
                   {
@@ -212,11 +217,23 @@ export function ZineSpread({
                 }
               >
                 {photo ? (
-                  renderPhoto ? (
-                    renderPhoto(photo)
-                  ) : (
-                    <img src={photo.src} alt={photo.title || "影集照片"} />
-                  )
+                  <ZinePhotoFrame
+                    width={node.w}
+                    height={node.h}
+                    position={node.position}
+                    crop={page.photo_crops?.[node.slot || 0]}
+                    onChange={
+                      onPhotoCrop
+                        ? (crop) => onPhotoCrop(node.slot || 0, crop)
+                        : undefined
+                    }
+                  >
+                    {renderPhoto ? (
+                      renderPhoto(photo)
+                    ) : (
+                      <img src={photo.src} alt={photo.title || "影集照片"} />
+                    )}
+                  </ZinePhotoFrame>
                 ) : (
                   <span className="zine-photo-unavailable">
                     此位置暂无可用照片

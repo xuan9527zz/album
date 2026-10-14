@@ -104,6 +104,13 @@ export function syncZineConfig(
     .map((p) => ({
       ...p,
       photo_ids: p.photo_ids.map((id) => (id && available.has(id) ? id : null)),
+      ...(p.photo_crops
+        ? {
+            photo_crops: p.photo_crops.map((crop, i) =>
+              p.photo_ids[i] && available.has(p.photo_ids[i]!) ? crop : null,
+            ),
+          }
+        : {}),
     }))
     .filter((p) => p.photo_ids.some(Boolean));
   const used = new Set(pages.flatMap((p) => p.photo_ids).filter(Boolean));

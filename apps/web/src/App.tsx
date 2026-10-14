@@ -883,6 +883,7 @@ function Gallery({ client, mode, onVisible }: { client: Client; mode: "featured"
         <button className="secondary select-toggle" onClick={() => { setSelecting(!selecting); setSelected([]); setConfirmTrash(false); }}>
           {selecting ? "完成选择" : "批量管理"}
         </button>
+        {shared && <a className="secondary" href="#/stories/new/shared">制作影集</a>}
         <span className="sort-label">
           拍摄日期 ↓
         </span>

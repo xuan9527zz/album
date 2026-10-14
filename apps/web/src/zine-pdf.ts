@@ -6,6 +6,7 @@ import {
 import { contrastInk } from "../../../packages/zine/src/color";
 import { zineFontFamilies } from "../../../packages/zine/src/ZineFonts";
 import { pdfTask } from "./pdf-task";
+import { cropGeometry } from "../../../packages/zine/src/crop";
 import type {
   ZineConfig,
   ZineNode,
@@ -307,24 +308,16 @@ export async function createZinePDF(
               `第 ${index + 1} 页照片下载超时，请检查网络后重试`,
             );
             const img = await image(source, signal);
-            const scale = Math.max(
-              node.w / img.naturalWidth,
-              node.h / img.naturalHeight,
-            );
-            const position = (node.position || "50% 50%")
-              .split(" ")
-              .map((part) => parseFloat(part) / 100);
+            const crop = cropGeometry(img.naturalWidth, img.naturalHeight, node.w, node.h, page.photo_crops?.[node.slot || 0], node.position);
             ctx.beginPath();
             ctx.rect(node.x, node.y, node.w, node.h);
             ctx.clip();
             ctx.drawImage(
               img,
-              node.x -
-                (img.naturalWidth * scale - node.w) * (position[0] || 0.5),
-              node.y -
-                (img.naturalHeight * scale - node.h) * (position[1] || 0.5),
-              img.naturalWidth * scale,
-              img.naturalHeight * scale,
+              node.x + crop.left,
+              node.y + crop.top,
+              crop.width,
+              crop.height,
             );
             img.src = "";
           } else {

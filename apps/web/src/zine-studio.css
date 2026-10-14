@@ -203,7 +203,7 @@
     gap: 18px;
   }
   .zine-player-stage {
-    padding: 14px 44px;
+    padding: 14px 12px;
   }
   .zine-book-player .story-player-header {
     padding: 0 13px;
@@ -237,4 +237,24 @@
   .zine-book-player .story-player-arrow.next {
     right: 2px;
   }
+}
+.zine-crop-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0;
+}
+.zine-crop-controls input {
+  min-width: 0;
+  flex: 1;
+  accent-color: #507059;
+}
+.zine-crop-controls button {
+  white-space: nowrap;
+  padding: 8px 10px;
+}
+.story-pick-name small {
+  display: block;
+  opacity: 0.8;
+  font-size: 11px;
 }

@@ -19,6 +19,20 @@ export const zineConfigSchema = z
             layout: z.enum(zineLayoutIds),
             photo_ids: z.array(z.string().uuid().nullable()).min(1).max(3),
             texts: z.record(z.string().max(50), z.string().max(600)),
+            photo_crops: z
+              .array(
+                z
+                  .object({
+                    zoom: z.number().min(1).max(5),
+                    x: z.number().min(-2).max(2),
+                    y: z.number().min(-2).max(2),
+                  })
+                  .strict()
+                  .nullable(),
+              )
+              .min(1)
+              .max(3)
+              .optional(),
           })
           .strict(),
       )
@@ -33,6 +47,7 @@ export const zineConfigSchema = z
       const layout = getZineLayout(page.layout)!;
       if (
         page.photo_ids.length !== layout.slots ||
+        (page.photo_crops && page.photo_crops.length !== layout.slots) ||
         !page.photo_ids.some(Boolean) ||
         new Set(page.photo_ids.filter(Boolean)).size !==
           page.photo_ids.filter(Boolean).length
