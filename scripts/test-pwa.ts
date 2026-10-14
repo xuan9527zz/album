@@ -35,8 +35,16 @@ assert.equal(
   12,
   "Complete self-hosted zine fonts must be emitted",
 );
+let workerOverride = "",
+  staleEntry = false;
 const server = createServer(async (req, res) => {
   const pathname = new URL(req.url!, "http://127.0.0.1:4173").pathname;
+  if (pathname === "/album/sw.js" && workerOverride) {
+    res.setHeader("Content-Type", "text/javascript");
+    res.setHeader("Cache-Control", "no-store");
+    res.end(workerOverride);
+    return;
+  }
   if (pathname === "/album/private.json") {
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("Content-Type", "application/json");
@@ -55,7 +63,16 @@ const server = createServer(async (req, res) => {
     return;
   }
   try {
-    const bytes = await readFile(new URL(`../dist/${path}`, import.meta.url));
+    let bytes = await readFile(new URL(`../dist/${path}`, import.meta.url));
+    if (staleEntry && path === "index.html")
+      bytes = Buffer.from(
+        bytes
+          .toString()
+          .replace(
+            /\/album\/assets\/index-[^" ]+\.js/,
+            "/album/assets/retired-entry.js",
+          ),
+      );
     res.setHeader(
       "Content-Type",
       path.endsWith(".js")
@@ -156,6 +173,76 @@ try {
   await page.getByText("当前离线，请联网后查看或上传照片。").waitFor();
   console.log(
     "PWA check passed: complete application assets and fonts preloaded, private requests excluded, offline shell available.",
+  );
+  await context.setOffline(false);
+  const source = await readFile(
+    new URL("../dist/sw.js", import.meta.url),
+    "utf8",
+  );
+  workerOverride = source.replace(
+    /const CACHE="[^"]+";/,
+    'const CACHE="album-shell-stale-upgrade-test";',
+  );
+  staleEntry = true;
+  const rejected = await page.evaluate(async () => {
+    const registration = (await navigator.serviceWorker.getRegistration())!;
+    const result = new Promise<string>((resolve) => {
+      registration.addEventListener(
+        "updatefound",
+        () => {
+          const worker = registration.installing!;
+          worker.addEventListener("statechange", () => {
+            if (["redundant", "installed"].includes(worker.state))
+              resolve(worker.state);
+          });
+        },
+        { once: true },
+      );
+    });
+    await registration.update();
+    return result;
+  });
+  assert.equal(
+    rejected,
+    "redundant",
+    "An inconsistent HTML release must not replace the working shell",
+  );
+  await page.reload();
+  await page.getByText("相册尚未配置", { exact: true }).waitFor();
+  assert.equal(await page.locator(".update-banner").count(), 0);
+  staleEntry = false;
+  workerOverride = source.replace(
+    /const CACHE="[^"]+";/,
+    'const CACHE="album-shell-consistent-upgrade-test";',
+  );
+  await page.evaluate(async () =>
+    (await navigator.serviceWorker.getRegistration())!.update(),
+  );
+  await page
+    .getByRole("button", { name: "新版本已准备好 · 点击刷新", exact: true })
+    .waitFor();
+  await Promise.all([
+    page.waitForEvent("framenavigated"),
+    page
+      .getByRole("button", { name: "新版本已准备好 · 点击刷新", exact: true })
+      .click(),
+  ]);
+  await page.getByText("相册尚未配置", { exact: true }).waitFor();
+  await page.waitForFunction(async () =>
+    (await caches.keys()).includes("album-shell-consistent-upgrade-test"),
+  );
+  const upgraded = await page.evaluate(async () => ({
+    keys: await caches.keys(),
+    html: await (await (
+      await caches.open("album-shell-consistent-upgrade-test")
+    ).match("/album/index.html"))!.text(),
+  }));
+  assert.ok(!upgraded.html.includes("retired-entry"));
+  assert.ok(!upgraded.keys.includes("album-shell-stale-upgrade-test"));
+  await page.reload();
+  await page.getByText("相册尚未配置", { exact: true }).waitFor();
+  console.log(
+    "PWA upgrade check passed: stale HTML rejected, consistent release activated without a blank page.",
   );
 } finally {
   await browser.close();

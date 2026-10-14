@@ -30,7 +30,16 @@ function preload(){
   })().finally(()=>{warming=undefined;});return warming;
 }
 self.addEventListener('install',event=>event.waitUntil((async()=>{
-  const cache=await caches.open(CACHE);await cache.addAll(SHELL);await preload();
+  // The HTML URL stays the same across releases. Never mix a cached old entry
+  // with this worker's new hashed assets, then delete the old worker's cache.
+  const entry=BASE+'index.html',response=await fetch(entry,{cache:'no-store'});
+  if(!response.ok)throw new Error('Shell HTML unavailable');
+  const html=await response.clone().text();
+  const references=[...html.matchAll(/(?:src|href)="([^"]+\\/assets\\/[^"]+)"/g)].map(match=>new URL(match[1],self.location.origin).pathname);
+  if(!references.length||references.some(path=>!SHELL.includes(path)))throw new Error('Shell release mismatch');
+  const cache=await caches.open(CACHE);
+  await cache.addAll(SHELL.filter(path=>path!==entry).map(path=>new Request(path,{cache:'reload'})));
+  await cache.put(entry,response);await preload();
 })()));
 self.addEventListener('message',event=>{
   if(event.data==='activate')self.skipWaiting();

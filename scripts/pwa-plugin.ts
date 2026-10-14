@@ -14,6 +14,7 @@ export function pwaPlugin(base: string, name: string): Plugin {
       const names = Object.keys(bundle);
       const version = createHash("sha256")
         .update(names.join("|"))
+        .update(serviceWorkerSource.toString())
         .digest("hex")
         .slice(0, 14);
       const allow = [
