@@ -6,9 +6,13 @@ import { downloadAudio } from "./prepared-audio";
 export function FileAudioPlayer({
   source,
   title = "MP3 配乐试播",
+  subtitle = "本机试播",
+  expectedBytes,
 }: {
   source: string;
   title?: string;
+  subtitle?: string;
+  expectedBytes?: number;
 }) {
   const [enabled, setEnabled] = useState(true);
   return enabled ? (
@@ -16,6 +20,8 @@ export function FileAudioPlayer({
       key={source}
       source={source}
       title={title}
+      subtitle={subtitle}
+      expectedBytes={expectedBytes}
       close={() => setEnabled(false)}
     />
   ) : (
@@ -34,10 +40,14 @@ function AudioSession({
   source,
   title,
   close,
+  subtitle,
+  expectedBytes,
 }: {
   source: string;
   title: string;
   close: () => void;
+  subtitle: string;
+  expectedBytes?: number;
 }) {
   const media = useRef<HTMLAudioElement>(null);
   const [nonce, setNonce] = useState(0),
@@ -48,6 +58,7 @@ function AudioSession({
   const [bytes, setBytes] = useState({ loaded: 0, total: 0 });
   const [url, setURL] = useState(""),
     [error, setError] = useState("");
+  const [direct, setDirect] = useState(false);
   const [playing, setPlaying] = useState(false),
     [position, setPosition] = useState(0),
     [duration, setDuration] = useState(0);
@@ -60,11 +71,17 @@ function AudioSession({
     setError("");
     setBytes({ loaded: 0, total: 0 });
     setPlaying(false);
+    setDirect(false);
     setPosition(0);
     setDuration(0);
-    void downloadAudio(source, controller.signal, (value) => {
-      if (alive) setBytes(value);
-    })
+    void downloadAudio(
+      source,
+      controller.signal,
+      (value) => {
+        if (alive) setBytes(value);
+      },
+      expectedBytes,
+    )
       .then((blob) => {
         if (!alive) return;
         owned = URL.createObjectURL(blob);
@@ -86,7 +103,7 @@ function AudioSession({
       element?.load();
       if (owned) URL.revokeObjectURL(owned);
     };
-  }, [source, nonce]);
+  }, [source, nonce, expectedBytes]);
   useEffect(() => {
     if (state !== "decoding") return;
     const timer = window.setTimeout(() => {
@@ -97,7 +114,9 @@ function AudioSession({
   }, [state]);
   const percent =
     state === "ready"
-      ? 100
+      ? direct
+        ? null
+        : 100
       : bytes.total
         ? Math.min(99, Math.floor((bytes.loaded / bytes.total) * 100))
         : null;
@@ -116,6 +135,12 @@ function AudioSession({
     } catch {
       setError("请点击播放配乐；如果仍无声音，可以静音观看。");
     }
+  }
+  function playDirectly() {
+    setDirect(true);
+    setError("");
+    setState("decoding");
+    setURL(new URL(source, location.href).href);
   }
   return (
     <div className="music-host file-audio-host">
@@ -140,7 +165,7 @@ function AudioSession({
         <header>
           <div>
             <strong>{title}</strong>
-            <small>本机试播</small>
+            <small>{subtitle}</small>
           </div>
           <button
             aria-label={collapsed ? "展开配乐面板" : "收起配乐面板"}
@@ -158,12 +183,14 @@ function AudioSession({
               {state === "error"
                 ? "音乐暂时未能准备好"
                 : state === "ready"
-                  ? "100% · 音乐准备完成"
+                  ? direct
+                    ? "在线播放已就绪"
+                    : "100% · 音乐准备完成"
                   : state === "decoding"
                     ? "正在准备播放…"
                     : `音乐准备中${percent === null ? "…" : ` · ${percent}%`}`}
             </strong>
-            {state !== "error" && (
+            {state !== "error" && !direct && (
               <progress
                 aria-label="音乐加载进度"
                 max={100}
@@ -175,6 +202,7 @@ function AudioSession({
               {bytes.total > 0 && ` / ${formatBytes(bytes.total)}`}
             </small>
           </div>
+          {direct && <p>兼容播放模式，音乐由浏览器缓冲。</p>}
           {state === "ready" && (
             <>
               <button
@@ -215,6 +243,9 @@ function AudioSession({
                 <RefreshCw size={14} />
                 重试音乐加载
               </button>
+            )}
+            {state === "error" && !direct && (
+              <button onClick={playDirectly}>尝试兼容播放</button>
             )}
             <button onClick={close}>静音观看</button>
           </div>

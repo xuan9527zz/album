@@ -251,6 +251,14 @@
   width: 100%;
   accent-color: #315b44;
 }
+.music-trial-art {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.hosted-music-trial .zine-text {
+  font-family: Georgia, "Times New Roman", serif !important;
+}
 .music-panel iframe {
   border: 0;
   display: block;

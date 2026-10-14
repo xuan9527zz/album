@@ -54,6 +54,7 @@ const demoIDs = [
 const StoryArea = lazy(() =>
   import("./StoryStudio").then(({ StoryArea }) => ({ default: StoryArea })),
 );
+const HostedMusicTrial = lazy(() => import("./HostedMusicTrial"));
 const PublicStoryReader = lazy(() =>
   import("./StoryStudio").then(({ PublicStoryReader }) => ({ default: PublicStoryReader })),
 );
@@ -304,7 +305,8 @@ function useRoute() {
   return route;
 }
 export default function App() {
-  const publicRoute = useRoute().match(/^\/watch\/([0-9a-f]{64})$/);
+  const entryRoute = useRoute();
+  const publicRoute = entryRoute.match(/^\/watch\/([0-9a-f]{64})$/);
   const [userID, setUserID] = useState<string | null>(null);
   const [invitePending, setInvitePending] = useState(
     () => sessionStorage.getItem(inviteMarker) === "1",
@@ -369,7 +371,9 @@ export default function App() {
       {localDemo && (
         <div className="demo-banner">本地演示 · 合成图片 · 未连接云服务</div>
       )}
-      {publicRoute ? (
+      {entryRoute === "/music-trial" ? (
+        <Suspense fallback={<div className="boot">正在打开试播影集…</div>}><HostedMusicTrial /></Suspense>
+      ) : publicRoute ? (
         <Suspense fallback={<div className="boot">正在打开影集…</div>}><PublicStoryReader key={publicRoute[1]} token={publicRoute[1]} /></Suspense>
       ) : restoring ? (
         <div className="boot">

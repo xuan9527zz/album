@@ -1,5 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+const publicMusic = JSON.parse(
+  readFileSync(new URL("../config/public-music.json", import.meta.url), "utf8"),
+).files;
 const tracked = execFileSync("git", ["ls-files", "-z"], { encoding: "utf8" })
   .split("\0")
   .filter(Boolean);
@@ -23,8 +27,16 @@ for (const file of files) {
     failed = true;
   }
   if (/\.(mp3|wav)$/i.test(file) && !file.startsWith("tests/fixtures/")) {
-    console.error(`Unexpected audio path: ${file}`);
-    failed = true;
+    const approved = publicMusic[file];
+    const bytes = readFileSync(file);
+    if (
+      !approved ||
+      bytes.length !== approved.bytes ||
+      createHash("sha256").update(bytes).digest("hex") !== approved.sha256
+    ) {
+      console.error(`Unexpected audio path or contents: ${file}`);
+      failed = true;
+    }
   }
   if (/\.(png|heic|mp3|wav)$/i.test(file)) continue;
   const source = readFileSync(file, "utf8");

@@ -6,6 +6,7 @@ export async function downloadAudio(
   source: string,
   signal: AbortSignal,
   progress: (value: AudioDownloadProgress) => void,
+  expectedBytes?: number,
 ) {
   const controller = new AbortController();
   let idle: ReturnType<typeof setTimeout>;
@@ -25,7 +26,8 @@ export async function downloadAudio(
       referrerPolicy: "no-referrer",
     });
     if (!response.ok || !response.body) throw new Error("音乐下载失败，请重试");
-    const total = Number(response.headers.get("content-length")) || 0;
+    const total =
+      expectedBytes || Number(response.headers.get("content-length")) || 0;
     const limit = 40 * 1024 * 1024;
     if (total > limit) throw new Error("这段音乐超过 40 MB，请使用较小的文件");
     const reader = response.body.getReader();

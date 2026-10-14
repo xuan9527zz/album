@@ -21,7 +21,7 @@ const build = spawnSync(
 if (build.status !== 0) process.exit(1);
 const storyAssets = (
   await readdir(new URL("../dist/assets/", import.meta.url))
-).filter((name) => /^StoryStudio-.*\.(js|css)$/.test(name));
+).filter((name) => /^(StoryStudio-.*\.js|story-tools-.*\.css)$/.test(name));
 const fontAssets = (
   await readdir(new URL("../dist/assets/", import.meta.url))
 ).filter((name) => name.endsWith(".woff2"));
@@ -32,7 +32,7 @@ assert.ok(programAssets.length > 20, `Program assets ${programAssets.length}`);
 assert.equal(
   storyAssets.length,
   2,
-  "Story Studio must be a separate JS/CSS download",
+  "Story Studio code and shared viewer styles must be separate downloads",
 );
 assert.equal(
   fontAssets.length,
@@ -126,7 +126,9 @@ const server = createServer(async (req, res) => {
               ? "image/png"
               : path.endsWith(".woff2")
                 ? "font/woff2"
-                : "text/html",
+                : path.endsWith(".mp3")
+                  ? "audio/mpeg"
+                  : "text/html",
     );
     res.end(bytes);
   } catch {
@@ -170,6 +172,7 @@ try {
       headers: { Authorization: "Bearer synthetic-test-token" },
     });
     await fetch("/album/private.json?X-Amz-Signature=synthetic");
+    await (await fetch("/album/music/whenever.mp3")).arrayBuffer();
   });
   await expect
     .poll(
@@ -192,7 +195,12 @@ try {
   });
   assert.ok(cached.length > 2);
   assert.ok(
-    cached.every((u) => !u.includes("private") && !u.includes("Signature")),
+    cached.every(
+      (u) =>
+        !u.includes("private") &&
+        !u.includes("Signature") &&
+        !u.includes("/music/"),
+    ),
   );
   assert.ok(storyAssets.every((name) => cached.some((u) => u.endsWith(name))));
   assert.ok(
