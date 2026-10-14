@@ -40,6 +40,7 @@ import {
   type MusicDraft,
 } from "./StoryMusic";
 import { StoryExport } from "./StoryExport";
+import { FileAudioPlayer } from "./FileAudioPlayer";
 import "./story-tools.css";
 import "./story.css";
 
@@ -988,7 +989,9 @@ function StoryReader({
       publicView={!!publicToken}
       toolbar={
         <>
-          <MusicHost storyID={story.id} music={story.music} />
+          {import.meta.env.DEV && localDemo && new URLSearchParams(location.search).has("musicTrial") ? (
+            <FileAudioPlayer source={`/__music-trial/audio${new URLSearchParams(location.search).get("musicTrial") === "stall" ? `?stall=${story.id}` : ""}`} />
+          ) : <MusicHost storyID={story.id} music={story.music} />}
           {client && story.is_owner && (
             <StoryExport story={story} client={client} />
           )}

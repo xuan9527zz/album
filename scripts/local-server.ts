@@ -5,7 +5,9 @@ import { createHash } from "node:crypto";
 import { localDatabase, demoUsers } from "./local-database";
 import { LocalStore } from "./local-store";
 import { createHandler, cleanUp } from "../apps/api/src/handler";
+import { localMusicTrial } from "./music-trial";
 async function main() {
+  const musicTrial = await localMusicTrial();
   const { sql, db } = await localDatabase();
   const store = new LocalStore();
   const handler = createHandler({
@@ -90,6 +92,7 @@ async function main() {
   await sql.exec("truncate public.request_limits");
   const server = createServer(async (req, res) => {
     try {
+      if (musicTrial(req, res)) return;
       // Each browser test starts with a fresh rate window; the demo API never runs in production.
       if (req.method === "POST" && req.url === "/__test/reset-request-limits") {
         await sql.exec("truncate public.request_limits");

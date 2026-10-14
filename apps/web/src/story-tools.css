@@ -217,6 +217,40 @@
 .music-panel-body {
   padding: 14px 16px;
 }
+.file-audio-panel {
+  white-space: normal;
+}
+.file-audio-progress progress {
+  width: 100%;
+  margin: 12px 0 7px;
+}
+.file-audio-progress small {
+  font-variant-numeric: tabular-nums;
+}
+.file-audio-panel .file-audio-play {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 18px;
+  min-height: 44px;
+  border: 0;
+  border-radius: 10px;
+  background: #315b44;
+  color: #fff;
+}
+.file-audio-time {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  margin: 13px 0 5px;
+  font-variant-numeric: tabular-nums;
+}
+.file-audio-panel input[type="range"] {
+  width: 100%;
+  accent-color: #315b44;
+}
 .music-panel iframe {
   border: 0;
   display: block;

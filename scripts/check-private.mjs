@@ -22,7 +22,11 @@ for (const file of files) {
     console.error(`Unexpected image path: ${file}`);
     failed = true;
   }
-  if (/\.(png|heic)$/i.test(file)) continue;
+  if (/\.(mp3|wav)$/i.test(file) && !file.startsWith("tests/fixtures/")) {
+    console.error(`Unexpected audio path: ${file}`);
+    failed = true;
+  }
+  if (/\.(png|heic|mp3|wav)$/i.test(file)) continue;
   const source = readFileSync(file, "utf8");
   if (
     /sb_secret_[A-Za-z0-9]{20,}|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}|X-Amz-Signature=[a-f0-9]{64}/.test(

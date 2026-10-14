@@ -14,7 +14,14 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), pwaPlugin(base, "唯味相册")],
     envDir: "../..",
     build: { outDir: "../../dist", emptyOutDir: true },
-    server: { port: 5173, strictPort: true },
+    server: {
+      port: 5173,
+      strictPort: true,
+      proxy:
+        mode !== "production" && env.VITE_LOCAL_DEMO === "true"
+          ? { "/__music-trial/": "http://127.0.0.1:8788" }
+          : undefined,
+    },
     preview: { port: 4173 },
   };
 });
