@@ -32,6 +32,8 @@ Worker 的 `/health` 返回 200，匿名 `/v1/photos` 返回 401；网关相同�
 
 ## 4. GitHub Pages
 
+2026-10-14 PDF 卡住修复已由 [Pages #22](https://github.com/xuan9527zz/album/actions/runs/38554282464) 从 `c38f593` 发布。正式 PWA 通过“新版本已准备好 · 点击刷新”启用后，导出窗口出现“取消制作”，正式影集生成并下载为有效的 3 页 PDF；没有生成公开观看链接或改动照片/影集记录。导出专用请求支持取消/超时，字体超时以系统字体继续，图片和画布临时内存会释放；另修复导出窗口继承工具栏不换行造成的横向滚动。三浏览器 12 项 PDF 故障恢复及全部模板检查通过，真实 iPhone PWA 的制作和保存仍需用户复测。
+
 仓库 `xuan9527zz/album` 只放代码和合成测试素材。Settings → Pages 已选择 **GitHub Actions**；仓库 Variables 已设置 `VITE_SUPABASE_URL`、`VITE_SUPABASE_PUBLISHABLE_KEY`、`VITE_API_BASE_URL`。[Deploy Pages #15](https://github.com/xuan9527zz/album/actions/runs/38397051157) 从提交 `3fe92f3` 构建最终网站；正式站点为 `https://xuan9527zz.github.io/album/`。后续前端代码更新后仍需手动触发此工作流发布。
 
 Supabase Auth 的 Site URL 和一条精确 Redirect URL 已设为上述 Pages URL。Worker `ALLOWED_ORIGINS` 与 R2 CORS 为实际 origin `https://xuan9527zz.github.io`。Pages 可公开静态源码，但业务记录与文件必须受后台权限保护。[GitHub Pages](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages)。

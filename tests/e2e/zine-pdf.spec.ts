@@ -58,6 +58,12 @@ test("exports all twelve fixed layouts with Chinese fonts and custom paper colou
     const story = await response.json();
     await page.goto(`/#/stories/${story.id}`);
     await page.getByRole("button", { name: "导出", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "导出影集" });
+    expect(
+      await dialog.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth,
+      ),
+    ).toBe(true);
     await page.getByRole("button", { name: "制作 PDF", exact: true }).click();
     const link = page.getByRole("link", { name: "打开 PDF", exact: true });
     await expect(link).toBeVisible({ timeout: 45000 });

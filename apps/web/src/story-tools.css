@@ -278,6 +278,8 @@
 }
 .story-export-dialog {
   width: min(590px, 100%);
+  white-space: normal;
+  text-align: left;
   max-height: calc(100dvh - 40px);
   overflow: auto;
   background: #faf9f3;
