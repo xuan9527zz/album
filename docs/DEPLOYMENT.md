@@ -1,12 +1,14 @@
 # 从零部署
 
-独立 Supabase `album` 项目已按顺序执行九次迁移，最新为 `202610140004_photo_filenames.sql`，并关闭公众注册和匿名登录。Cloudflare `family-album` 私有桶已设置 CORS。四位成员均已建立，邀请邮件已发送；真实设备验收仍待完成。新版发布记录见下方，不复用其他网站的账号或数据库。不要把真实密钥提交到 Git 或聊天记录。
+独立 Supabase `album` 项目已按顺序执行十次迁移，最新为 `202610150001_story_playback.sql`，并关闭公众注册和匿名登录。Cloudflare `family-album` 私有桶已设置 CORS。四位成员均已建立，邀请邮件已发送；真实设备验收仍待完成。新版发布记录见下方，不复用其他网站的账号或数据库。不要把真实密钥提交到 Git 或聊天记录。
 
 ## 1. Supabase
 
+2026-10-15 文件 BGM 和同步放映已从 `63752bc` 经 [Pages #30](https://github.com/xuan9527zz/album/actions/runs/38622320070) 发布，[Checks #53](https://github.com/xuan9527zz/album/actions/runs/38622272307) 全部通过（49 项数据库/API、60 项浏览器、PWA）。第十次迁移及 Worker 已按序更新；正式工作台和试播页已核对配乐选择、默认秒数、一键播放和暂停。使用记录与设备验收范围见 [BGM 发布说明](BGM_RELEASE.md)。
+
 2026-10-14 手机上传修复：第九次迁移 `202610140004_photo_filenames.sql` 已在正式库成功执行，内容与本地长度/FNV 校验一致。新增命名 RPC 与原始来源文件名字段；新保存文件按“上传者昵称_实际照片ID.后缀”命名，断点恢复继续识别源文件。旧照片的下载名称也采用此格式，不改动对象键或图片字节。非成员 RPC 返回预期 `NOT_MEMBER`。Worker `556f94a1-636f-42a9-bbf9-30385e01c6ff` 已发布，健康与鉴权检查通过。[Pages #21](https://github.com/xuan9527zz/album/actions/runs/38545909210) 从 `b5848e2` 发布成功；正式 390px 上传页用两张合成图片核对文件名、非空日期和字段宽度，没有保存测试图片到正式相册。
 
-项目 `nqjdngemhgmahqjuuxwx` 已在 SQL Editor 执行九份迁移，**不要重复执行**。`202610130004_messages_likes_titles_push.sql` 新增独立照片标题、个人点赞、群聊、消息与推送订阅及 `album_v5_action`，未自动共享已有照片。发布顺序为**先运行迁移，再部署 Worker，最后部署 Pages**。`profiles`、`photos`、`photo_assets`、`photo_comments` 及新消息表的 RLS 和函数权限仍应定期审计；anon 无业务读取权限，`authenticated` 只有本人且非最近删除的照片 SELECT；评论、点赞和聊天通过已鉴权的 Worker 与仅 service role 可执行的 RPC 访问。现有照片默认不共享。
+项目 `nqjdngemhgmahqjuuxwx` 已在 SQL Editor 执行十份迁移，**不要重复执行**。`202610130004_messages_likes_titles_push.sql` 新增独立照片标题、个人点赞、群聊、消息与推送订阅及 `album_v5_action`，未自动共享已有照片。发布顺序为**先运行迁移，再部署 Worker，最后部署 Pages**。`profiles`、`photos`、`photo_assets`、`photo_comments` 及新消息表的 RLS 和函数权限仍应定期审计；anon 无业务读取权限，`authenticated` 只有本人且非最近删除的照片 SELECT；评论、点赞和聊天通过已鉴权的 Worker 与仅 service role 可执行的 RPC 访问。现有照片默认不共享。
 
 影集迁移 `202610140001_story_albums.sql` 于 2026-10-14 执行成功，新增影集及有序照片引用表和 `album_v6_action`，不复制、移动或共享现有照片；新影集默认仅创建者可见。正式 RPC 用非成员参数返回 `NOT_MEMBER`，确认函数可用；之后新版 Worker 与 Pages #18 按序发布。回滚 Worker 或网页时保留已应用的迁移与影集记录。
 
