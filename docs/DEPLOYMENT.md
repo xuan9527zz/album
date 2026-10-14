@@ -10,7 +10,9 @@
 
 2026-10-14 Zine 更新：第七次迁移 `202610140002_zine_templates.sql` 和第八次 `202610140003_story_music_public.sql` 已按序在正式 SQL Editor 执行成功，粘贴内容与本地文件长度及 FNV 校验一致。增加三套模板、`zine_config`、颜色、音乐和可撤销链接；旧影集与照片仍保留。新函数以非成员参数返回预期 `NOT_MEMBER`，无效公开令牌返回 `NOT_FOUND`。新表无 anon/authenticated 直接权限；仅鉴权的所有者可生成链接，公开读取不包含原件。没有为现有影集创建公开链接。后续应保留已应用的八次迁移，不能重复运行。
 
-Worker 已发布为 `99a431d0-5097-4bcf-b65e-f5e2eb9a3c74`，影集使用 `album_v8_action`。网关还必须单独部署本仓库的新版 `index.js`，仅允许匿名 GET 精确的 64 位令牌路径，其他业务接口仍鉴权；仅推送 GitHub 不会更新网关。最后部署 Pages 和 WOFF2 字体。前端处理 `/album/` 前缀，勿改成根目录字体路径。当前网页发布状态将在完成后补记。
+Worker 已发布为 `99a431d0-5097-4bcf-b65e-f5e2eb9a3c74`，影集使用 `album_v8_action`。新版网关 `index.js` 已在控制台单独部署，内容与本地长度及 FNV 校验一致；仅允许匿名 GET 精确的 64 位令牌路径，其他业务接口仍鉴权。Worker/网关 `/health` 均 200，匿名影集列表均 401，无效公开令牌均 404，匿名公开路径 POST 均 401。R2 桶仍私有。
+
+[Pages #20](https://github.com/xuan9527zz/album/actions/runs/38519341016) 从 `15111c7` 构建发布成功，[Checks #36](https://github.com/xuan9527zz/album/actions/runs/38519253304) 全流程成功。正式影集工作台已核对三套模板、颜色和音乐设置；“我的”显示 31 项本机资源已预装。线上新 bundle 包含音乐、链接与 PDF，全部 12 份字体 HTTP 200，Service Worker 预存字体、PDF 和 HEIC 工具。前端处理 `/album/` 前缀，勿改成根目录字体路径。此次没有保存正式影集或对家庭照片生成公开链接；功能写入与导出以本地合成素材验收，真实 iPhone 仍待设备端验证。
 
 Auth 的公众注册与匿名登录已关闭，刷新设置页后再次核对；账号由管理员控制台或受控脚本建立，最多启用四个成员。首位成员 `xuan` 已用管理员控制台创建并在正式站点登录、上传一张照片。之后可用 `npm run invite -- 家人邮箱 昵称` 生成私密邀请链接，让受邀人自己设置密码；具体发送与清理步骤见 [维护说明](OPERATIONS.md)。Supabase 的前端 publishable key 可公开；后台 secret key 已在本机私密环境验证管理员接口，后续只能放在 Worker secrets 和本地私密环境中。[Supabase Auth](https://supabase.com/docs/guides/auth)、[API keys](https://supabase.com/docs/guides/getting-started/api-keys)、[RLS](https://supabase.com/docs/guides/database/postgres/row-level-security)。
 
