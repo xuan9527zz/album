@@ -35,7 +35,7 @@ import {
 import { auth, Client, configured, inviteMarker, localDemo } from "./client";
 import { cachedImage, clearImageCache, imageInSession } from "./session-image-cache";
 import { fileMime, metadata as readPhotoMetadata } from "./files";
-import { usePwaCacheStatus } from "./pwa-cache-status";
+import { usePwaCacheStatus, requestPwaPreload } from "./pwa-cache-status";
 import { photoFilename } from "../../../packages/shared/src/photo-filename";
 import {
   addDerivatives,
@@ -2478,8 +2478,17 @@ function MyPage({ me, client, onChange, logout }: { me: any; client: Client; onC
             <progress max={preload.total} value={preload.completed} />
           )}
           <p>字体、影集模板、PDF 与图片处理工具保存在本机，后续打开复用。照片和音乐内容仍需联网。</p>
+          {preload.downloads?.map((item, index) => (
+            <div className="pwa-download" key={`${item.label}-${index}`}>
+              <div><span>{item.label}</span><span>{formatBytes(item.loaded)}{item.total > 0 && ` / ${formatBytes(item.total)}`}</span></div>
+              {item.total > 0 && <progress max={item.total} value={Math.min(item.loaded, item.total)} />}
+            </div>
+          ))}
           {preload.state === "partial" && (
-            <button type="button" className="secondary" onClick={() => void navigator.serviceWorker.ready.then((r) => r.active?.postMessage("preload"))}>继续预装</button>
+            <>
+              <p role="status">{preload.storage ? "手机暂时无法保存剩余资源，请释放一些空间后重试。" : "部分资源未完成，联网时会自动重试。已完成的资源会保留。"}</p>
+              <button type="button" className="secondary" onClick={requestPwaPreload}>重试剩余资源</button>
+            </>
           )}
         </div>
       )}

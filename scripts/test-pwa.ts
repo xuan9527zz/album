@@ -42,9 +42,38 @@ assert.equal(
 let workerOverride = "",
   staleEntry = false;
 let fontRequests = 0;
+let slowFontRequests = 0,
+  retryRequests = 0;
+const streaming = new Set<ReturnType<typeof setInterval>>();
 const heldResources = new Set<import("node:http").ServerResponse>();
 const server = createServer(async (req, res) => {
   const pathname = new URL(req.url!, "http://127.0.0.1:4173").pathname;
+  if (pathname === "/album/assets/preload-slow-font.woff2") {
+    slowFontRequests++;
+    res.setHeader("Content-Type", "font/woff2");
+    res.setHeader("Content-Length", 16 * 32768);
+    let chunks = 0;
+    const timer = setInterval(() => {
+      res.write(Buffer.alloc(32768, 1));
+      if (++chunks === 16) res.end();
+    }, 320);
+    streaming.add(timer);
+    res.on("close", () => {
+      clearInterval(timer);
+      streaming.delete(timer);
+    });
+    return;
+  }
+  if (pathname === "/album/assets/preload-retry.js") {
+    res.setHeader("Content-Type", "text/javascript");
+    if (++retryRequests === 1) {
+      res.setHeader("Content-Length", 1024);
+      res.write("/* first attempt stalls */");
+      heldResources.add(res);
+      res.on("close", () => heldResources.delete(res));
+    } else res.end("/* recovered optional tool */");
+    return;
+  }
   if (pathname.endsWith(".woff2")) fontRequests++;
   if (pathname === "/album/assets/slow-extra.js") {
     heldResources.add(res);
@@ -112,6 +141,13 @@ const browser =
     : await chromium.launch(process.env.CI ? {} : { channel: "chrome" });
 const context = await browser.newContext();
 const page = await context.newPage();
+await page.addInitScript(() => {
+  (window as any).__preloadMessages = [];
+  navigator.serviceWorker.addEventListener("message", (event) => {
+    if (event.data?.type === "album-preload")
+      (window as any).__preloadMessages.push(event.data);
+  });
+});
 try {
   await page.goto(
     "http://127.0.0.1:4173/album/#/photo/11111111-1111-4111-8111-111111111111",
@@ -249,8 +285,8 @@ try {
       'const CACHE="album-shell-consistent-upgrade-test";',
     )
     .replace(
-      "let warming;",
-      'ALLOW.add(BASE+"assets/slow-extra.js");let warming;',
+      "let warming,snapshot;",
+      'ALLOW.add(BASE+"assets/slow-extra.js");let warming,snapshot;',
     );
   await page.evaluate(async () =>
     (await navigator.serviceWorker.getRegistration())!.update(),
@@ -321,8 +357,154 @@ try {
   console.log(
     "PWA upgrade check passed: stale HTML rejected, update accessible above a modal, stalled optional resources do not block activation.",
   );
+  const total =
+    JSON.parse(source.match(/const ALLOW=new Set\((\[[^;]+\])\);/)![1]).length +
+    2;
+  workerOverride = source
+    .replace(
+      /const CACHE="[^"]+";/,
+      'const CACHE="album-shell-resumable-test";',
+    )
+    .replace("45000", "2500")
+    .replace("600000", "20000")
+    .replace(
+      "let warming,snapshot;",
+      'ALLOW.add(BASE+"assets/preload-slow-font.woff2");ALLOW.add(BASE+"assets/preload-retry.js");RESOURCES[BASE+"assets/preload-slow-font.woff2"]={label:"影集中文测试字体",bytes:524288};let warming,snapshot;',
+    );
+  await page.evaluate(async () =>
+    (await navigator.serviceWorker.getRegistration())!.update(),
+  );
+  await page
+    .getByRole("button", { name: "新版本已准备好 · 点击刷新", exact: true })
+    .waitFor();
+  await Promise.all([
+    page.waitForEvent("framenavigated"),
+    page
+      .getByRole("button", { name: "新版本已准备好 · 点击刷新", exact: true })
+      .click(),
+  ]);
+  await page.getByText("相册尚未配置", { exact: true }).waitFor();
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() =>
+          (window as any).__preloadMessages.some((m: any) =>
+            m.downloads?.some(
+              (d: any) =>
+                d.label === "影集中文测试字体" &&
+                d.loaded > 0 &&
+                d.loaded < d.total,
+            ),
+          ),
+        ),
+      { timeout: 10000 },
+    )
+    .toBe(true);
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          (expected) =>
+            (window as any).__preloadMessages.some(
+              (m: any) =>
+                m.total === expected &&
+                m.state === "partial" &&
+                m.completed === expected - 1,
+            ),
+          total,
+        ),
+      { timeout: 15000 },
+    )
+    .toBe(true);
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          (expected) =>
+            (window as any).__preloadMessages.some(
+              (m: any) =>
+                m.total === expected &&
+                m.state === "ready" &&
+                m.completed === expected,
+            ),
+          total,
+        ),
+      { timeout: 35000 },
+    )
+    .toBe(true);
+  assert.equal(
+    slowFontRequests,
+    1,
+    "A progressing download survives beyond its idle timeout and is not repeated",
+  );
+  assert.equal(
+    retryRequests,
+    2,
+    "A stalled resource retries automatically without reopening",
+  );
+  await context.setOffline(true);
+  await page.evaluate(async () =>
+    (await caches.open("album-shell-resumable-test")).delete(
+      "/album/assets/preload-retry.js",
+    ),
+  );
+  await context.setOffline(false);
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          async () =>
+            !!(await (
+              await caches.open("album-shell-resumable-test")
+            ).match("/album/assets/preload-retry.js")),
+        ),
+      { timeout: 10000 },
+    )
+    .toBe(true);
+  assert.equal(
+    slowFontRequests,
+    1,
+    "Going back online preserves completed files",
+  );
+  assert.equal(
+    retryRequests,
+    3,
+    "Going back online immediately resumes missing files",
+  );
+  await page.evaluate(async () => {
+    await (
+      await caches.open("album-shell-resumable-test")
+    ).delete("/album/assets/preload-retry.js");
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          async () =>
+            !!(await (
+              await caches.open("album-shell-resumable-test")
+            ).match("/album/assets/preload-retry.js")),
+        ),
+      { timeout: 10000 },
+    )
+    .toBe(true);
+  assert.equal(
+    retryRequests,
+    4,
+    "Returning to the foreground resumes missing files",
+  );
+  assert.equal(
+    slowFontRequests,
+    1,
+    "Foreground rechecks preserve complete resources",
+  );
+  console.log(
+    "PWA recovery check passed: live byte progress, slow streams preserved, stalled downloads retry automatically, online resumes missing files.",
+  );
 } finally {
   await browser.close();
+  for (const timer of streaming) clearInterval(timer);
   for (const response of heldResources) response.destroy();
   server.close();
 }

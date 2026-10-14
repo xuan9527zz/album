@@ -3,29 +3,60 @@ export function serviceWorkerSource(
   allow: string[],
   shell: string[],
   base: string,
+  resources: Record<string, { label: string; bytes: number }> = {},
 ) {
   return `const CACHE=${JSON.stringify(cache)};
 const ALLOW=new Set(${JSON.stringify(allow)});
 const SHELL=${JSON.stringify(shell)};
 const BASE=${JSON.stringify(base)};
-let warming;
-async function report(completed,total,state){
-  for(const client of await self.clients.matchAll({type:'window',includeUncontrolled:true}))
-    client.postMessage({type:'album-preload',completed,total,state});
+const RESOURCES=${JSON.stringify(resources)};
+let warming,snapshot;
+let sending=Promise.resolve();
+const active=new Map();
+function broadcast(value){
+  sending=sending.then(async()=>{for(const client of await self.clients.matchAll({type:'window',includeUncontrolled:true}))client.postMessage(value);}).catch(()=>{});return sending;
+}
+function report(completed,total,state){
+  snapshot={type:'album-preload',completed,total,state,downloads:[...active.values()].map(item=>({...item}))};
+  return broadcast(snapshot);
 }
 function preload(){
-  if(warming)return warming;
+  if(warming){if(snapshot)void broadcast(snapshot);return warming;}
   warming=(async()=>{
-    const cache=await caches.open(CACHE),files=[...ALLOW];let cursor=0,completed=0,failed=0;
-    await report(0,files.length,'downloading');
-    async function work(){while(cursor<files.length){const path=files[cursor++];let timer;try{
-      let resource=await cache.match(path);
-      if(!resource&&path.startsWith(BASE+'assets/'))resource=await caches.match(path);
-      if(!resource){const controller=new AbortController();timer=setTimeout(()=>controller.abort(),30000);const response=await fetch(path,{signal:controller.signal});if(!response.ok||response.type==='opaque')throw new Error();resource=response;}
-      if(!await cache.match(path))await cache.put(path,resource.clone());
+    const cache=await caches.open(CACHE),files=[...ALLOW],missing=[];let cursor=0,completed=0,failed=0,storage=false,lastReport=0;
+    for(const path of files){if(await cache.match(path))completed++;else missing.push(path);}
+    const notify=()=>report(completed,files.length,'downloading');
+    const heartbeat=setInterval(()=>void notify(),5000);
+    await notify();
+    async function work(){while(cursor<missing.length){const path=missing[cursor++];let idle,deadline;const controller=new AbortController();try{
+      const info=RESOURCES[path]||{label:path.endsWith('.woff2')?'影集字体':'程序资源',bytes:0};
+      const progress={label:info.label,loaded:0,total:info.bytes};active.set(path,progress);await notify();
+      let resource=path.startsWith(BASE+'assets/')?await caches.match(path):undefined;
+      if(resource){await cache.put(path,resource);completed++;continue;}
+      const resetIdle=()=>{clearTimeout(idle);idle=setTimeout(()=>controller.abort(),45000);};
+      const aborted=new Promise((_,reject)=>controller.signal.addEventListener('abort',()=>reject(new Error('Resource download stalled')),{once:true}));
+      resetIdle();deadline=setTimeout(()=>controller.abort(),600000);
+      await Promise.race([aborted,(async()=>{
+        const response=await fetch(path,{signal:controller.signal});
+        if(!response.ok||response.type==='opaque'||!response.body)throw new Error('Resource unavailable');
+        progress.total=info.bytes||Number(response.headers.get('content-length'))||0;
+        const reader=response.body.getReader();
+        const body=new ReadableStream({
+          async pull(target){try{const part=await reader.read();if(part.done){target.close();return;}resetIdle();progress.loaded+=part.value.byteLength;target.enqueue(part.value);
+            if(Date.now()-lastReport>1000){lastReport=Date.now();void notify();}
+          }catch(error){target.error(error);}},
+          cancel(reason){return reader.cancel(reason);}
+        });
+        // Fetch exposes decoded bytes. Do not retain encoded transfer headers
+        // on the new response stored in CacheStorage.
+        const headers=new Headers(response.headers);headers.delete('content-encoding');headers.delete('content-length');
+        await cache.put(path,new Response(body,{status:response.status,statusText:response.statusText,headers}));
+        if(controller.signal.aborted)throw new Error('Resource download stalled');
+      })()]);
       completed++;
-    }catch{failed++;}finally{clearTimeout(timer);}await report(completed,files.length,'downloading');}}
-    await Promise.all([work(),work()]);
+    }catch(error){failed++;if(error?.name==='QuotaExceededError')storage=true;}finally{clearTimeout(idle);clearTimeout(deadline);controller.abort();active.delete(path);await notify();}}}
+    try{await Promise.all([work(),work()]);}finally{clearInterval(heartbeat);}
+    if(storage){snapshot={type:'album-preload',completed,total:files.length,state:'partial',downloads:[],storage:true};await broadcast(snapshot);return;}
     await report(completed,files.length,failed?'partial':'ready');
     // Keep earlier immutable assets until the new cache has copied every file.
     // Partial preloads can retry without downloading the same fonts again.

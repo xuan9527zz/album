@@ -1467,6 +1467,20 @@ progress::-moz-progress-bar {
   text-align: center;
   font-size: 13px;
 }
+.pwa-download {
+  margin: 12px 0;
+}
+.pwa-download > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.pwa-download progress {
+  margin-top: 7px;
+  height: 4px;
+}
 @media (min-width: 1550px) {
   .photo-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));

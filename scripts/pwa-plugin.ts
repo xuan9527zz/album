@@ -12,9 +12,46 @@ export function pwaPlugin(base: string, name: string): Plugin {
     },
     generateBundle(_options, bundle) {
       const names = Object.keys(bundle);
+      const labels: Record<string, string> = {
+        "han-sans": "影集中文字体",
+        "han-serif": "影集中文书籍字体",
+        huiwen: "影集手写字体",
+        smiley: "影集圆体",
+      };
+      const resources = Object.fromEntries(
+        names.map((file) => {
+          const output = bundle[file];
+          const contents =
+            output.type === "chunk" ? output.code : output.source;
+          const label =
+            Object.entries(labels).find(([prefix]) =>
+              file.startsWith(`assets/${prefix}-`),
+            )?.[1] ||
+            (file.endsWith(".woff2")
+              ? "影集字体"
+              : /heic-to|image.worker/.test(file)
+                ? "照片处理工具"
+                : /jspdf|zine-pdf/.test(file)
+                  ? "PDF 工具"
+                  : file.includes("StoryStudio")
+                    ? "影集模板"
+                    : "相册程序");
+          return [
+            base + file,
+            {
+              label,
+              bytes:
+                typeof contents === "string"
+                  ? Buffer.byteLength(contents)
+                  : contents.byteLength,
+            },
+          ];
+        }),
+      );
       const version = createHash("sha256")
         .update(names.join("|"))
         .update(serviceWorkerSource.toString())
+        .update(JSON.stringify(resources))
         .digest("hex")
         .slice(0, 14);
       const allow = [
@@ -94,6 +131,7 @@ export function pwaPlugin(base: string, name: string): Plugin {
           allow,
           shell,
           base,
+          resources,
         ),
       });
     },
