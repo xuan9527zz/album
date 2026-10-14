@@ -34,3 +34,7 @@ ffmpeg -f lavfi -i sine=frequency=330:duration=8 -af volume=0.05 -codec:a libmp3
 桌面/手机尺寸 Chrome 验证完整下载、点击播放、翻页维持同一个音频元素、断网继续播放、取消和重试。Windows 自带的 Playwright WebKit 能播放同一 MP3 的 HTTP URL，但拒绝其 Blob URL；本机原型的两项测试明确跳过，错误和静音继续的测试仍执行。在线页提供用户主动点击的“尝试兼容播放”，切换至 HTTP 原生缓冲，显示“在线播放已就绪”，不把部分缓冲标为 100%。三种浏览器的在线样本测试验证 MP3 大小/SHA256、实际时间前进、翻页不中断、无照片接口请求、页面无横向溢出；专项合计 10 项通过、2 项上述跳过。该环境限制不能代替真实 Safari/iPhone 验收。
 
 后续接入工作台音乐配置前，需要验证真实 iPhone 的缓存音频播放，并为音乐资源增加选择、上传/删除和引用机制。当前公开页只演示这一首歌，不修改已保存影集的配乐。
+
+线上验证：2026-10-15 [Pages #27](https://github.com/xuan9527zz/album/actions/runs/38609640817) 从 `650cfea` 发布成功。公开 MP3 返回 200、`audio/mp3`、9,970,460 bytes，SHA256 与原件相同；范围请求返回 206 及正确的 1,024 bytes。当前桌面网络整文件读取约 1.1 秒，不代表手机或其他网络耗时。正式试播页已实际点击 PWA 更新、达到 100%、点击播放并切至第二页，时间继续至 0:06；测试结束后暂停。截图保存在本机 `.local/hosted-mp3-production.jpg`，不提交到 Git。真实 iPhone 仍待用户复测。
+
+[Checks #48](https://github.com/xuan9527zz/album/actions/runs/38609605821) 完整通过：49 项数据库/API、51 项 Chrome/手机 Chrome/Linux WebKit 浏览器，以及 PWA 预存、更新和恢复；Linux WebKit 的 Blob 播放测试通过，没有跳过。

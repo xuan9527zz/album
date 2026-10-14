@@ -32,6 +32,8 @@ Worker 的 `/health` 返回 200，匿名 `/v1/photos` 返回 401；网关相同�
 
 ## 4. GitHub Pages
 
+2026-10-15 MP3 公开试播：[Pages #27](https://github.com/xuan9527zz/album/actions/runs/38609640817) 从 `650cfea` 发布成功。`https://xuan9527zz.github.io/album/music/whenever.mp3` 为公开静态音频直链，`#/music-trial` 为无需登录的示例影集；新入口可使用 `?refresh=music-20261015#/music-trial` 绕过旧 HTML 缓存。原文件大小/SHA256 及线上 206 范围读取已验证，正式桌面网页达到 100% 后点击播放和翻页均正常；真实 iPhone 待验证。MP3 不加入 PWA 永久预装。此发布没有运行数据库迁移或更新 API，工作台现有音乐配置未改变。
+
 2026-10-15 预装修复：大资源采用流式进度和无数据停滞计时，固定 30 秒的整项中断已移除；正在接收数据的资源可继续，45 秒无数据或单项超过 10 分钟才中断。前台会自动补下缺失项并退避重试，联网和回到前台会重新检查；已完成的资源不重复下载。新界面显示资源名称与 MB 进度，配额不足会提示并保留已有缓存。只改前端和 Service Worker，不新增迁移或修改接口。真实设备验收时核对大字体的 MB 进度、短暂断网后恢复、从主屏幕重新打开及最终“已预装”；不能用本地慢网模拟替代 iPhone 实测。
 
 预装修复已由 [Pages #26](https://github.com/xuan9527zz/album/actions/runs/38600665515) 从 `96c44c3` 发布，[Checks #46](https://github.com/xuan9527zz/album/actions/runs/38600557487) 完整通过。新缓存为 `album-shell-f5ec9935bc9abe`，入口脚本 `index-Cv9sCE16.js`，仍有 31 项公开程序资源。桌面正式 PWA 更新后显示“已预装”，实际 iPhone 复测待完成。数据库仍为九次迁移，API Worker 版本不变。
