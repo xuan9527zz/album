@@ -990,7 +990,7 @@ function StoryReader({
       toolbar={
         <>
           {import.meta.env.DEV && localDemo && new URLSearchParams(location.search).has("musicTrial") ? (
-            <FileAudioPlayer source={`/__music-trial/audio${new URLSearchParams(location.search).get("musicTrial") === "stall" ? `?stall=${story.id}` : new URLSearchParams(location.search).get("musicTrial") === "invalid" ? "?invalid=1" : ""}`} />
+            <FileAudioPlayer source={`/__music-trial/audio${new URLSearchParams(location.search).get("musicTrial") === "stall" ? `?stall=${story.id}` : new URLSearchParams(location.search).get("musicTrial") === "failure" ? `?failure=${story.id}` : new URLSearchParams(location.search).get("musicTrial") === "invalid" ? "?invalid=1" : ""}`} />
           ) : <MusicHost storyID={story.id} music={story.music} />}
           {client && story.is_owner && (
             <StoryExport story={story} client={client} />

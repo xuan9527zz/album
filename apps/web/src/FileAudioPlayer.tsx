@@ -270,6 +270,7 @@ function AudioSession({
         </div>
       </section>
       <audio
+        key={nonce}
         ref={media}
         src={url || undefined}
         preload="auto"

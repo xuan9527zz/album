@@ -33,7 +33,7 @@ npm run dev:local
 ffmpeg -f lavfi -i sine=frequency=330:duration=8 -af volume=0.05 -codec:a libmp3lame -b:a 96k -ar 44100 tests/fixtures/audio-tone.mp3
 ```
 
-桌面/手机尺寸 Chrome 验证完整下载、点击播放、翻页维持同一个音频元素、断网继续播放、取消和重试。Windows 自带的 Playwright WebKit 能播放同一 MP3 的 HTTP URL，但拒绝其 Blob URL；本机原型的两项完整 Blob 播放测试明确跳过，错误和静音继续的测试仍执行。新版三种浏览器的专项检查 19 项通过、2 项上述跳过，覆盖 iPhone/iPad 识别、准备期间播放按钮可用、Blob 错误自动切换、实际播放/暂停及翻页保留、关闭/重新开启。Windows WebKit 原生媒体请求不经过 Playwright 路由，无效文件场景由开发服务器实际返回错误字节；能拦截媒体的浏览器另外验证播放前等待超过 15 秒不会误判失败、缓冲时暂停不报错、原生请求不额外走 fetch。该模拟不能代替真实 Safari/iPhone 验收。
+桌面/手机尺寸 Chrome 验证完整下载、点击播放、翻页维持同一个音频元素、断网继续播放、取消和重试。Windows 自带的 Playwright WebKit 能播放同一 MP3 的 HTTP URL，但拒绝其 Blob URL；本机原型的两项完整 Blob 播放测试明确跳过，错误和静音继续的测试仍执行。新版三种浏览器的专项检查 22 项通过、2 项上述跳过，覆盖 iPhone/iPad 识别、准备期间播放按钮可用、Blob 错误自动切换、实际播放/暂停及翻页保留、关闭/重新开启，以及原生同一 URL 从服务器故障恢复后重试实际播放。重试重建音频元素，使先前失败的原生加载重新开始，翻页仍保留当前实例。Windows WebKit 原生媒体请求不经过 Playwright 路由，无效文件/持续 503 场景由开发服务器实际返回；能拦截媒体的浏览器另外验证播放前等待超过 15 秒不会误判失败、缓冲时暂停不报错、原生请求不额外走 fetch。检查不依赖浏览器将原生请求分类为 media 或 other。该模拟不能代替真实 Safari/iPhone 验收。
 
 后续接入工作台音乐配置前，需要验证真实 iPhone 的缓存音频播放，并为音乐资源增加选择、上传/删除和引用机制。当前公开页只演示这一首歌，不修改已保存影集的配乐。
 

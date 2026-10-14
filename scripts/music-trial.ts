@@ -13,10 +13,23 @@ export async function localMusicTrial(
     throw new Error("Audio trial file exceeds 40 MB");
   const mime = "audio/mpeg";
   const stalled = new Set<string>();
+  const recovered = new Set<string>();
   return (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url!, "http://127.0.0.1:8788");
+    if (url.pathname === "/__music-trial/recover" && req.method === "POST") {
+      recovered.add(url.searchParams.get("failure") || "");
+      res.writeHead(204);
+      res.end();
+      return true;
+    }
     if (url.pathname !== "/__music-trial/audio" || req.method !== "GET")
       return false;
+    const failure = url.searchParams.get("failure");
+    if (failure && !recovered.has(failure)) {
+      res.writeHead(503, { "Cache-Control": "no-store" });
+      res.end();
+      return true;
+    }
     if (url.searchParams.has("invalid")) {
       res.writeHead(200, {
         "Content-Type": mime,

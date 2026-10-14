@@ -134,3 +134,47 @@ test("does not report 100 percent when fully downloaded bytes cannot be played",
   await expect(page.locator(".story-player-count")).toContainText("02 /");
   await request.delete(`${api}/v1/stories/${id}`, { headers });
 });
+
+test("iPhone native playback recovers from a server failure using the same URL", async ({
+  page,
+  request,
+}) => {
+  await page.addInitScript(() =>
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value:
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1",
+    }),
+  );
+  const id = await openTrial(page, request, "failure");
+  const player = page.getByRole("region", {
+    name: "文件音乐播放器",
+    exact: true,
+  });
+  await expect(player.getByRole("alert")).toContainText("音乐文件无法播放");
+  const old = await page.locator("audio").elementHandle();
+  const source = await page.locator("audio").getAttribute("src");
+  await request.post(`${api}/__music-trial/recover?failure=${id}`);
+  await player
+    .getByRole("button", { name: "重试音乐加载", exact: true })
+    .click();
+  await expect(player.getByRole("status")).toHaveText("在线播放已就绪");
+  await expect(page.locator("audio")).toHaveAttribute("src", source!);
+  expect(
+    await page.locator("audio").evaluate((a, previous) => a === previous, old),
+  ).toBe(false);
+  expect(
+    await old!.evaluate(
+      (a: HTMLAudioElement) => a.paused && !a.hasAttribute("src"),
+    ),
+  ).toBe(true);
+  await expect(player.getByRole("alert")).toHaveCount(0);
+  await player.getByRole("button", { name: "播放配乐", exact: true }).click();
+  await expect
+    .poll(() =>
+      page.locator("audio").evaluate((a: HTMLAudioElement) => a.currentTime),
+    )
+    .toBeGreaterThan(0.25);
+  await player.getByRole("button", { name: "暂停配乐", exact: true }).click();
+  await request.delete(`${api}/v1/stories/${id}`, { headers });
+});

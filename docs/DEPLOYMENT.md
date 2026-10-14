@@ -32,6 +32,8 @@ Worker 的 `/health` 返回 200，匿名 `/v1/photos` 返回 401；网关相同�
 
 ## 4. GitHub Pages
 
+2026-10-15 iPhone 配乐修复：[Pages #28](https://github.com/xuan9527zz/album/actions/runs/38612411124) 从 `3abc2bc` 发布成功。iPhone/iPad 默认原生 HTTP 音频，由浏览器缓冲，准备阶段可点击播放；其他设备 Blob 解码失败自动切换。新试播入口 `?refresh=ios-music-20261015#/music-trial` 可避开旧 HTML。正式入口 `index-ovO172TI.js`，线上已确认自动选择逻辑和新提示存在；设备端自动选择仍待用户复测。没有迁移、API 或音乐文件内容变动。
+
 2026-10-15 MP3 公开试播：[Pages #27](https://github.com/xuan9527zz/album/actions/runs/38609640817) 从 `650cfea` 发布成功。`https://xuan9527zz.github.io/album/music/whenever.mp3` 为公开静态音频直链，`#/music-trial` 为无需登录的示例影集；新入口可使用 `?refresh=music-20261015#/music-trial` 绕过旧 HTML 缓存。原文件大小/SHA256 及线上 206 范围读取已验证，正式桌面网页达到 100% 后点击播放和翻页均正常；真实 iPhone 待验证。MP3 不加入 PWA 永久预装。此发布没有运行数据库迁移或更新 API，工作台现有音乐配置未改变。
 
 2026-10-15 预装修复：大资源采用流式进度和无数据停滞计时，固定 30 秒的整项中断已移除；正在接收数据的资源可继续，45 秒无数据或单项超过 10 分钟才中断。前台会自动补下缺失项并退避重试，联网和回到前台会重新检查；已完成的资源不重复下载。新界面显示资源名称与 MB 进度，配额不足会提示并保留已有缓存。只改前端和 Service Worker，不新增迁移或修改接口。真实设备验收时核对大字体的 MB 进度、短暂断网后恢复、从主屏幕重新打开及最终“已预装”；不能用本地慢网模拟替代 iPhone 实测。

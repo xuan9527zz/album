@@ -1,5 +1,9 @@
 # 测试报告（2026-10-15）
 
+iPhone 配乐自动选择：用户实测旧试播页需手动选择兼容模式。新版 iPhone/iPad 默认直接用原生 HTTP 音频，不先重复 fetch；准备期间可点击播放，缓冲时可暂停，不将原生部分缓冲显示为整文件 100%。其他设备 Blob 解码失败/准备超时自动切换，原生错误保留重试和静音观看。本地最终专项 22 项通过，2 项 Windows WebKit 原有 Blob 限制跳过；iPhone/iPad 标识模拟、触屏桌面 UA、准备未完成时点击/暂停、实际播放与翻页保留、关闭/重新开启、无效音频及持续 503 恢复后同一 URL 重试均通过。Chrome/WebKit PWA 与类型/构建检查通过；原生媒体测试使用开发服务器返回错误，避免 Windows WebKit 绕过 Playwright 路由导致无效测试。初版由 [Pages #28](https://github.com/xuan9527zz/album/actions/runs/38612411124) 从 `3abc2bc` 发布，正式桌面 PWA 实际更新及翻页持续播放到 0:32 已核对；真实 iPhone 自动选择结果仍待用户复测。
+
+[Checks #50](https://github.com/xuan9527zz/album/actions/runs/38612368480) 中 58 个浏览器测试通过，2 个 Linux WebKit 测试仅因为将原生请求归类为 other、而断言要求 media 失败；实际音频时间前进与 UI 断言已通过。检查改为核对无额外 fetch 和实际播放，不依赖请求分类，同时按真正能拦截到的媒体请求验证等待/暂停；没有跳过这两项设备路径验证。
+
 MP3 在线影集试播：[Pages #27](https://github.com/xuan9527zz/album/actions/runs/38609640817) 从 `650cfea` 发布成功。用户指定 MP3 公开直链返回 200、正确大小及 SHA256，范围读取 206。正式试播页完成 PWA 更新后显示 100%，实际播放并翻到第二页后时间前进至 0:06，结束后暂停。页面使用合成插画，不请求照片资料。三浏览器专项 10 项通过；另 2 项仅在 Windows WebKit 中因 Blob 音频解码限制跳过，HTTP 兼容播放专项已通过。类型检查、生产构建、Chrome/WebKit PWA 预装/更新/恢复及音乐不进入永久缓存检查通过。真实 iPhone 的播放与网络时间仍待复测，工作台音乐配置尚未切换为 MP3。
 
 [Checks #48](https://github.com/xuan9527zz/album/actions/runs/38609605821) 完整通过：49/49 数据库/API、51/51 浏览器及 PWA 全流程；Linux WebKit 能播放 Blob 音频，没有触发 Windows 专属跳过。
