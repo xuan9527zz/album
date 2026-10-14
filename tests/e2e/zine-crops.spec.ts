@@ -11,6 +11,7 @@ const other = {
 test("uses family photos and saves pinch and drag framing in whole spreads", async ({
   page,
   request,
+  browser,
 }, info) => {
   await request.post(`${api}/__test/reset-request-limits`);
   const borrowed = (
@@ -59,14 +60,25 @@ test("uses family photos and saves pinch and drag framing in whole spreads", asy
     const x = rect.x + rect.width / 2,
       y = rect.y + rect.height / 2;
     const touch = (type: string, coords: number[][]) =>
-      frame.evaluate((target, data) => {
-        // Supply explicit TouchList coordinates consistently across test engines.
-        const event = new Event(data.type, { bubbles: true, cancelable: true });
-        const touches = data.coords.map(([clientX,clientY], i) => ({ identifier:i+1, clientX, clientY, target }));
-        Object.defineProperty(event, "touches", {value:touches});
-        Object.defineProperty(event, "changedTouches", {value:touches});
-        target.dispatchEvent(event);
-      }, { type, coords });
+      frame.evaluate(
+        (target, data) => {
+          // Supply explicit TouchList coordinates consistently across test engines.
+          const event = new Event(data.type, {
+            bubbles: true,
+            cancelable: true,
+          });
+          const touches = data.coords.map(([clientX, clientY], i) => ({
+            identifier: i + 1,
+            clientX,
+            clientY,
+            target,
+          }));
+          Object.defineProperty(event, "touches", { value: touches });
+          Object.defineProperty(event, "changedTouches", { value: touches });
+          target.dispatchEvent(event);
+        },
+        { type, coords },
+      );
     await touch("touchstart", [
       [x - 12, y],
       [x + 12, y],
@@ -76,7 +88,15 @@ test("uses family photos and saves pinch and drag framing in whole spreads", asy
       [x + 24, y],
     ]);
     await touch("touchend", []);
-    await expect.poll(async () => Number(await page.getByLabel("照片位置 1 缩放", {exact:true}).inputValue())).toBeCloseTo(2, 1);
+    await expect
+      .poll(async () =>
+        Number(
+          await page
+            .getByLabel("照片位置 1 缩放", { exact: true })
+            .inputValue(),
+        ),
+      )
+      .toBeCloseTo(2, 1);
     if (info.project.name === "desktop-chrome") {
       await page.mouse.move(x, y);
       await page.mouse.down();
@@ -111,6 +131,52 @@ test("uses family photos and saves pinch and drag framing in whole spreads", asy
     const crop = saved.zine_config.pages[0].photo_crops[0];
     expect(crop.zoom).toBeCloseTo(2, 1);
     expect(Math.abs(crop.x) + Math.abs(crop.y)).toBeGreaterThan(0.05);
+    const share = await request.post(`${api}/v1/stories/${id}/share`, {
+      headers,
+      data: {},
+    });
+    expect(share.ok()).toBe(true);
+    const { token } = await share.json();
+    const guest = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+    });
+    try {
+      const viewer = await guest.newPage();
+      await viewer.goto(`http://127.0.0.1:5173/#/watch/${token}`);
+      await expect(
+        viewer.getByRole("region", { name: "影集 跨页取景测试", exact: true }),
+      ).toBeVisible();
+      await expect(viewer.locator(".zine-photo img").first()).toBeVisible();
+      expect(
+        (
+          await request.post(`${api}/v1/photos/${borrowed[0].id}/share`, {
+            headers: other,
+            data: { is_shared: false },
+          })
+        ).ok(),
+      ).toBe(true);
+      await viewer.reload();
+      await expect(
+        viewer.getByRole("region", { name: "影集 跨页取景测试", exact: true }),
+      ).toBeVisible();
+      await viewer.getByRole("button", { name: "下一页", exact: true }).click();
+      await expect(
+        viewer.getByRole("img", { name: borrowed[1].title, exact: true }),
+      ).toBeVisible();
+      await expect(
+        viewer.getByRole("img", { name: borrowed[0].title, exact: true }),
+      ).toHaveCount(0);
+      expect(
+        (
+          await request.post(`${api}/v1/photos/${borrowed[0].id}/share`, {
+            headers: other,
+            data: { is_shared: true },
+          })
+        ).ok(),
+      ).toBe(true);
+    } finally {
+      await guest.close();
+    }
     await expect(
       page.locator(
         ".zine-player-turn:not([aria-hidden=true]) .zine-view-spread",

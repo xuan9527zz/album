@@ -44,6 +44,19 @@ it("creates zines from another member's shared photos, persists framing, and rem
       "insert into public.photos(id,owner_id,title,lifecycle_status,original_status,is_shared) values($1,$2,$3,'active','saved',true)",
       [p.id, photographer, p.title],
     );
+  for (const p of photos)
+    for (const role of ["preview", "original_image"])
+      await setup.sql.query(
+        "insert into public.photo_assets(id,photo_id,owner_id,role,object_key,original_filename,mime_type,size_bytes,checksum_value,md5,etag,provenance) values($1,$2,$3,$4,$5,'sample.jpg','image/jpeg',100,$6,'md5','etag','file_imported')",
+        [
+          crypto.randomUUID(),
+          p.id,
+          photographer,
+          role,
+          `${p.id}/${role}`,
+          "a".repeat(64),
+        ],
+      );
   const handler = createHandler({
     db: setup.db,
     store: new LocalStore(),
@@ -55,14 +68,14 @@ it("creates zines from another member's shared photos, persists framing, and rem
   const api = (
     path: string,
     data?: unknown,
-    user = author,
+    user: string | null = author,
     method = data ? "POST" : "GET",
   ) =>
     handler(
       new Request(`https://api.test${path}`, {
         method,
         headers: {
-          Authorization: `Bearer ${user}`,
+          ...(user ? { Authorization: `Bearer ${user}` } : {}),
           "Content-Type": "application/json",
         },
         body: data ? JSON.stringify(data) : undefined,
@@ -94,6 +107,21 @@ it("creates zines from another member's shared photos, persists framing, and rem
   expect(story.is_owner).toBe(true);
   expect(story.photos).toHaveLength(2);
   expect(story.zine_config).toEqual(config);
+  const share = await api(`/v1/stories/${story.id}/share`, {});
+  expect(share.status).toBe(200);
+  const { token } = await share.json();
+  const publicPath = `/v1/public/stories/${token}`;
+  const publicResult = await (await api(publicPath, undefined, null)).json();
+  expect(publicResult.photos).toHaveLength(2);
+  expect(publicResult.urls).toHaveLength(2);
+  expect(publicResult.zine_config).toEqual(config);
+  expect(JSON.stringify(publicResult)).not.toMatch(
+    /original_image|owner_id|object_key|checksum_value/,
+  );
+  expect(
+    (await api(`/v1/stories/${story.id}`, body, author, "PATCH")).status,
+  ).toBe(200);
+  expect((await api(publicPath, undefined, null)).status).toBe(200);
   expect((await api(`/v1/stories/${story.id}`, undefined, family)).status).toBe(
     200,
   );
@@ -134,5 +162,15 @@ it("creates zines from another member's shared photos, persists framing, and rem
   const redacted = await (await api(`/v1/stories/${story.id}`)).json();
   expect(redacted.photos.map((p: any) => p.id)).toEqual([photos[1].id]);
   expect(redacted.zine_config.pages[0].photo_ids[0]).toBeNull();
+  const publicRedacted = await (await api(publicPath, undefined, null)).json();
+  expect(publicRedacted.photos.map((p: any) => p.id)).toEqual([photos[1].id]);
+  expect(publicRedacted.urls).toHaveLength(1);
+  expect(publicRedacted.zine_config.pages[0].photo_ids[0]).toBeNull();
+  expect((await api(`/v1/stories/${story.id}/share`, {})).status).toBe(409);
   expect((await api("/v1/stories", body)).status).toBe(404);
+  await setup.sql.query(
+    "update public.photos set is_shared=false where id=$1",
+    [photos[1].id],
+  );
+  expect((await api(publicPath, undefined, null)).status).toBe(404);
 });

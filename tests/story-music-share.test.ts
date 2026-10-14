@@ -245,11 +245,11 @@ it("protects music writes, public link tokens and preview-only reading, and revo
       )
     ).status,
   ).toBe(200);
-  expect((await api(`/v1/stories/${story.id}/share`, {})).status).toBe(409);
   expect(
     (await api(`/v1/public/stories/${again.token}`, undefined, "GET", null))
       .status,
-  ).toBe(404);
+  ).toBe(200);
+  expect((await api(`/v1/stories/${story.id}/share`, {})).status).toBe(200);
   await api(`/v1/stories/${story.id}`, undefined, "DELETE");
   expect(
     (await setup.sql.query("select * from public.story_music")).rows,

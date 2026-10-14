@@ -239,7 +239,7 @@ export function StoryExport({
                 链接观看
               </h3>
               <p>
-                任何拿到链接的人都能查看影集照片、标题、时间和地点。公开链接仅支持本人照片，可随时关闭。
+                任何拿到链接的人都能查看影集照片、标题、时间和地点，包括已共享的家人照片。链接可随时关闭。
               </p>
               {link && (
                 <div className="story-share-link">

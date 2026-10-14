@@ -48,6 +48,7 @@ const publicErrors: Record<string, [number, string]> = {
   COMMENT_LIMIT: [409, "这张照片的评论已达上限"],
   STORY_LIMIT: [409, "影集最多保存 50 本"],
   PUBLIC_OWN_PHOTOS_ONLY: [409, "公开观看链接只能包含你自己的照片"],
+  PUBLIC_PHOTOS_UNAVAILABLE: [409, "照片已删除或撤回共享，请调整影集后重试"],
 };
 class APIError extends Error {
   constructor(
