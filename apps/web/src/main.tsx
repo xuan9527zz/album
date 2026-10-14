@@ -1,10 +1,21 @@
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./style.css";
+import { updatePwaCacheStatus } from "./pwa-cache-status";
 createRoot(document.getElementById("root")!).render(<App />);
 if (import.meta.env.PROD && "serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {
+      navigator.serviceWorker.addEventListener("message", (event) => {
+        const value = event.data;
+        if (
+          value?.type === "album-preload" &&
+          Number.isInteger(value.completed) &&
+          Number.isInteger(value.total) &&
+          ["downloading", "partial", "ready"].includes(value.state)
+        )
+          updatePwaCacheStatus(value);
+      });
       const reg = await navigator.serviceWorker.register(
         `${import.meta.env.BASE_URL}sw.js`,
         { scope: import.meta.env.BASE_URL },
@@ -39,6 +50,9 @@ if (import.meta.env.PROD && "serviceWorker" in navigator) {
         }
       });
       reg.update();
+      void navigator.serviceWorker.ready.then((ready) =>
+        ready.active?.postMessage("preload"),
+      );
     } catch {
       /* Installation failure does not switch to offline/mock data. */
     }

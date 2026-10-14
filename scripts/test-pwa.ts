@@ -19,9 +19,22 @@ const build = spawnSync(
   },
 );
 if (build.status !== 0) process.exit(1);
-const storyAssets = (await readdir(new URL("../dist/assets/", import.meta.url)))
-  .filter((name) => /^StoryStudio-.*\.(js|css)$/.test(name));
-assert.equal(storyAssets.length, 2, "Story Studio must be a separate JS/CSS download");
+const storyAssets = (
+  await readdir(new URL("../dist/assets/", import.meta.url))
+).filter((name) => /^StoryStudio-.*\.(js|css)$/.test(name));
+const fontAssets = (
+  await readdir(new URL("../dist/assets/", import.meta.url))
+).filter((name) => name.endsWith(".woff2"));
+assert.equal(
+  storyAssets.length,
+  2,
+  "Story Studio must be a separate JS/CSS download",
+);
+assert.equal(
+  fontAssets.length,
+  12,
+  "Complete self-hosted zine fonts must be emitted",
+);
 const server = createServer(async (req, res) => {
   const pathname = new URL(req.url!, "http://127.0.0.1:4173").pathname;
   if (pathname === "/album/private.json") {
@@ -53,7 +66,9 @@ const server = createServer(async (req, res) => {
             ? "application/manifest+json"
             : path.endsWith(".png")
               ? "image/png"
-              : "text/html",
+              : path.endsWith(".woff2")
+                ? "font/woff2"
+                : "text/html",
     );
     res.end(bytes);
   } catch {
@@ -62,9 +77,10 @@ const server = createServer(async (req, res) => {
   }
 });
 await new Promise<void>((resolve) => server.listen(4173, "127.0.0.1", resolve));
-const browser = process.env.TEST_WEBKIT === "true"
-  ? await webkit.launch()
-  : await chromium.launch(process.env.CI ? {} : { channel: "chrome" });
+const browser =
+  process.env.TEST_WEBKIT === "true"
+    ? await webkit.launch()
+    : await chromium.launch(process.env.CI ? {} : { channel: "chrome" });
 const context = await browser.newContext();
 const page = await context.newPage();
 try {
@@ -102,8 +118,32 @@ try {
     cached.every((u) => !u.includes("private") && !u.includes("Signature")),
   );
   assert.ok(storyAssets.every((name) => cached.some((u) => u.endsWith(name))));
-  assert.ok(cached.every((u) => !u.includes("heic-to-") && !u.includes("image.worker-")));
+  assert.ok(
+    cached.some((u) => u.includes("heic-to-")) &&
+      cached.some((u) => u.includes("image.worker-")),
+  );
+  assert.ok(
+    fontAssets.every((name) => cached.some((url) => url.endsWith(name))),
+    "All complete fonts must preload",
+  );
+  const fontName = fontAssets.find((name) => name.startsWith("smiley-"))!;
+  assert.ok(
+    await page.evaluate(
+      async (name) => (await fetch(`/album/assets/${name}`)).ok,
+      fontName,
+    ),
+  );
+  await page.waitForFunction(
+    async (name) => !!(await caches.match(`/album/assets/${name}`)),
+    fontName,
+  );
   await context.setOffline(true);
+  assert.ok(
+    await page.evaluate(
+      async (name) => (await fetch(`/album/assets/${name}`)).ok,
+      fontName,
+    ),
+  );
   for (const name of storyAssets) {
     const loaded = await page.evaluate(
       async (assetName) => (await fetch(`/album/assets/${assetName}`)).ok,
@@ -115,7 +155,7 @@ try {
   await page.getByText("相册尚未配置", { exact: true }).waitFor();
   await page.getByText("当前离线，请联网后查看或上传照片。").waitFor();
   console.log(
-    "PWA check passed: public shell and small Story Studio assets preloaded, private requests excluded, offline shell available.",
+    "PWA check passed: complete application assets and fonts preloaded, private requests excluded, offline shell available.",
   );
 } finally {
   await browser.close();

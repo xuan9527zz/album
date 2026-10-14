@@ -35,6 +35,7 @@ import {
 import { auth, Client, configured, inviteMarker, localDemo } from "./client";
 import { cachedImage, clearImageCache, imageInSession } from "./session-image-cache";
 import { metadata as readPhotoMetadata } from "./files";
+import { usePwaCacheStatus } from "./pwa-cache-status";
 import {
   addDerivatives,
   addLiveVideo,
@@ -51,6 +52,9 @@ const demoIDs = [
 ];
 const StoryArea = lazy(() =>
   import("./StoryStudio").then(({ StoryArea }) => ({ default: StoryArea })),
+);
+const PublicStoryReader = lazy(() =>
+  import("./StoryStudio").then(({ PublicStoryReader }) => ({ default: PublicStoryReader })),
 );
 const appName = "唯味相册";
 const dateText = (p: Photo) =>
@@ -299,6 +303,7 @@ function useRoute() {
   return route;
 }
 export default function App() {
+  const publicRoute = useRoute().match(/^\/watch\/([0-9a-f]{64})$/);
   const [userID, setUserID] = useState<string | null>(null);
   const [invitePending, setInvitePending] = useState(
     () => sessionStorage.getItem(inviteMarker) === "1",
@@ -363,7 +368,9 @@ export default function App() {
       {localDemo && (
         <div className="demo-banner">本地演示 · 合成图片 · 未连接云服务</div>
       )}
-      {restoring ? (
+      {publicRoute ? (
+        <Suspense fallback={<div className="boot">正在打开影集…</div>}><PublicStoryReader key={publicRoute[1]} token={publicRoute[1]} /></Suspense>
+      ) : restoring ? (
         <div className="boot">
           <Logo />
           <p>正在打开相册…</p>
@@ -2347,6 +2354,7 @@ async function avatarFromFile(file: File): Promise<string> {
   }
 }
 function MyPage({ me, client, onChange, logout }: { me: any; client: Client; onChange: () => void; logout: () => Promise<void> }) {
+  const preload = usePwaCacheStatus();
   const ratio = (me.committed_bytes + me.reserved_bytes) / me.budget_bytes;
   const [name, setName] = useState(me.display_name as string);
   const [avatar, setAvatar] = useState<string | null>(me.avatar_data_url || null);
@@ -2449,6 +2457,27 @@ function MyPage({ me, client, onChange, logout }: { me: any; client: Client; onC
         </p>
       </div>
       <a className="secondary trash-link" href="#/trash"><Trash2 size={17} /> 最近删除 <ChevronRight size={17} /></a>
+      {!localDemo && (
+        <div className="storage-panel pwa-storage-panel">
+          <h3>
+            本机程序资源
+            <span>
+              {preload.state === "ready"
+                ? "已预装"
+                : preload.total
+                  ? `${preload.completed}/${preload.total}`
+                  : "正在检查"}
+            </span>
+          </h3>
+          {preload.total > 0 && (
+            <progress max={preload.total} value={preload.completed} />
+          )}
+          <p>字体、影集模板、PDF 与图片处理工具保存在本机，后续打开复用。照片和音乐内容仍需联网。</p>
+          {preload.state === "partial" && (
+            <button type="button" className="secondary" onClick={() => void navigator.serviceWorker.ready.then((r) => r.active?.postMessage("preload"))}>继续预装</button>
+          )}
+        </div>
+      )}
       <p className="fineprint">最近删除保留 30 天。重要照片仍建议另外备份一份原件。</p>
       <button className="secondary logout" onClick={logout}>
         <LogOut size={17} />

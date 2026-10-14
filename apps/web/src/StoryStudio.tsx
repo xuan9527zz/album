@@ -15,11 +15,35 @@ import {
   X,
 } from "lucide-react";
 import type { Photo } from "../../../packages/shared/src/index";
-import { Client, localDemo } from "./client";
+import { Client, localDemo, publicRequest, RequestError } from "./client";
 import { cachedImage, imageInSession } from "./session-image-cache";
+import {
+  getZineCollection,
+  isZineTemplate,
+  syncZineConfig,
+  newZineConfig,
+} from "../../../packages/zine/src/model";
+import type {
+  ZineConfig,
+  ZineTemplate,
+} from "../../../packages/zine/src/types";
+import { storyBodySchema } from "../../../packages/zine/src/schema";
+import { ZineEditor, ZinePlayer } from "./ZineStudio";
+import { ZineSpread } from "../../../packages/zine/src";
+import { normalizeColor } from "../../../packages/zine/src/color";
+import type { MusicConfig } from "../../../packages/zine/src/music";
+import {
+  MusicHost,
+  MusicSettings,
+  emptyMusic,
+  musicFromDraft,
+  type MusicDraft,
+} from "./StoryMusic";
+import { StoryExport } from "./StoryExport";
+import "./story-tools.css";
 import "./story.css";
 
-type Template = "journal" | "cinema" | "postcard";
+type Template = "journal" | "cinema" | "postcard" | ZineTemplate;
 type Transition = "slide" | "fade" | "zoom";
 type Story = {
   id: string;
@@ -32,6 +56,8 @@ type Story = {
   photo_count?: number;
   cover_photo?: Photo | null;
   photos?: Photo[];
+  zine_config?: ZineConfig | null;
+  music?: MusicConfig | null;
   updated_at: string;
 };
 type StoryResult = Story & {
@@ -44,14 +70,17 @@ type PhotoPage = {
   next_cursor: string | null;
 };
 const templateNames: Record<Template, string> = {
-  journal: "旅行手记",
-  cinema: "黑色影院",
-  postcard: "明信片",
+  journal: "余日 · 旧日游记",
+  cinema: "途中 · 城市采样",
+  postcard: "潮汐 · 海岸档案",
+  "zine-city": "途中 · 城市采样",
+  "zine-diary": "余日 · 旧日游记",
+  "zine-coast": "潮汐 · 海岸档案",
 };
 const transitionNames: Record<Transition, string> = {
   slide: "横向切换",
-  fade: "柔和淡入",
-  zoom: "缓慢推近",
+  fade: "滑动与淡入",
+  zoom: "滑动与推近",
 };
 const showError = (error: unknown) =>
   error instanceof Error ? error.message : "暂时无法完成操作";
@@ -71,8 +100,12 @@ function StoryImage({
   full?: boolean;
   eager?: boolean;
 }) {
+  const available = (role: string) =>
+    photo.assets.find(
+      (item) => item.role === role && (urls[item.id] || cachedImage(item.id)),
+    );
   const asset = full
-    ? assetFor(photo, true)
+    ? available("preview") || available("thumbnail") || assetFor(photo, true)
     : photo.assets.find(
         (item) =>
           item.role === "thumbnail" && (urls[item.id] || cachedImage(item.id)),
@@ -235,10 +268,17 @@ function StoryEditor({
   storyID?: string;
 }) {
   const [title, setTitle] = useState("");
-  const [template, setTemplate] = useState<Template>("journal");
+  const [template, setTemplate] = useState<ZineTemplate>("zine-city");
   const [transition, setTransition] = useState<Transition>("slide");
   const [shared, setShared] = useState(false);
   const [selected, setSelected] = useState<Photo[]>([]);
+  const [zineConfig, setZineConfig] = useState<ZineConfig | null>(null);
+  const [musicDraft, setMusicDraft] = useState<MusicDraft>({ ...emptyMusic });
+  const [backgroundDraft, setBackgroundDraft] = useState(
+    getZineCollection("zine-city").paper,
+  );
+  const [panel, setPanel] = useState<"photos" | "design" | "music">("photos");
+  const themeDrafts = useRef(new Map<ZineTemplate, ZineConfig>());
   const [source, setSource] = useState<"mine" | "shared">("mine");
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [urls, setURLs] = useState<Record<string, string>>({});
@@ -254,7 +294,8 @@ function StoryEditor({
     let active = true;
     client
       .request<StoryResult>(`/v1/stories/${storyID}`)
-      .then((story) => {
+      .then((raw) => {
+        const story = normalizedStory(raw);
         if (!active) return;
         if (!story.is_owner) throw new Error("只有影集主人可以编辑");
         setTitle(story.title);
@@ -262,6 +303,18 @@ function StoryEditor({
         setTransition(story.transition);
         setShared(story.is_shared);
         setSelected(story.photos);
+        setZineConfig(story.zine_config || null);
+        setBackgroundDraft(
+          story.zine_config.background_color ||
+            getZineCollection(story.template).paper,
+        );
+        if (story.music)
+          setMusicDraft({
+            url: story.music.source_url,
+            enabled: story.music.enabled,
+            title: story.music.title || "",
+            artist: story.music.artist || "",
+          });
         setURLs((old) => ({
           ...old,
           ...Object.fromEntries(story.urls.map((item) => [item.id, item.url])),
@@ -327,6 +380,42 @@ function StoryEditor({
   useEffect(() => {
     if (!canShare) setShared(false);
   }, [canShare]);
+  useEffect(() => {
+    if (!loaded || !isZineTemplate(template)) return;
+    setZineConfig((old) => {
+      const next = syncZineConfig(old, selected, template);
+      return JSON.stringify(old) === JSON.stringify(next) ? old : next;
+    });
+  }, [template, selected, loaded]);
+  useEffect(() => {
+    if (!isZineTemplate(template)) return;
+    const ids = selected
+      .map(
+        (photo) => photo.assets.find((asset) => asset.role === "preview")?.id,
+      )
+      .filter((id): id is string => !!id && !urls[id] && !cachedImage(id));
+    if (!ids.length) return;
+    let active = true;
+    void (async () => {
+      for (let start = 0; start < ids.length && active; start += 24) {
+        const result = await client.request<{
+          urls: { id: string; url: string }[];
+        }>("/v1/assets/read-urls", { ids: ids.slice(start, start + 24) });
+        if (active)
+          setURLs((old) => ({
+            ...old,
+            ...Object.fromEntries(
+              result.urls.map((item) => [item.id, item.url]),
+            ),
+          }));
+      }
+    })().catch((error) => {
+      if (active) setError(showError(error));
+    });
+    return () => {
+      active = false;
+    };
+  }, [template, selected, client]);
   function toggle(photo: Photo) {
     setSelected((old) =>
       old.some((item) => item.id === photo.id)
@@ -357,15 +446,27 @@ function StoryEditor({
     setSaving(true);
     setError("");
     try {
+      const payload = {
+        title: title.trim(),
+        template,
+        transition,
+        is_shared: shared,
+        photo_ids: selected.map((photo) => photo.id),
+        zine_config: zineConfig
+          ? {
+              ...zineConfig,
+              background_color:
+                normalizeColor(backgroundDraft) || backgroundDraft,
+            }
+          : null,
+        music: musicFromDraft(musicDraft),
+      };
+      const validated = storyBodySchema.safeParse(payload);
+      if (!validated.success)
+        throw new Error(validated.error.issues[0].message);
       const story = await client.request<Story>(
         storyID ? `/v1/stories/${storyID}` : "/v1/stories",
-        {
-          title: title.trim(),
-          template,
-          transition,
-          is_shared: shared,
-          photo_ids: selected.map((photo) => photo.id),
-        },
+        validated.data,
         storyID ? "PATCH" : "POST",
       );
       location.hash = `/stories/${story.id}`;
@@ -407,7 +508,7 @@ function StoryEditor({
         <div>
           <p className="story-kicker">CREATE YOUR STORY</p>
           <h1>{storyID ? "编辑影集" : "制作一本影集"}</h1>
-          <p>照片的顺序、画面和节奏，都由你决定。</p>
+          <p>选择照片、编排版面，保存后观看或导出。</p>
         </div>
         <button
           className="story-save"
@@ -424,9 +525,37 @@ function StoryEditor({
           {error}
         </p>
       )}
+      <nav className="story-work-tabs" aria-label="影集工作台步骤">
+        <button
+          type="button"
+          aria-pressed={panel === "photos"}
+          onClick={() => setPanel("photos")}
+        >
+          01 选择照片 <small>{selected.length}</small>
+        </button>
+        <button
+          type="button"
+          aria-pressed={panel === "design"}
+          onClick={() => setPanel("design")}
+        >
+          02 编排版面
+        </button>
+        <button
+          type="button"
+          aria-pressed={panel === "music"}
+          onClick={() => setPanel("music")}
+        >
+          03 背景音乐
+        </button>
+        {storyID && (
+          <a href={`#/stories/${storyID}`}>
+            观看与导出 <ArrowRight size={15} />
+          </a>
+        )}
+      </nav>
       <div className="story-workspace">
         <div className="story-work-main">
-          <section className="story-panel">
+          <section className="story-panel" hidden={panel !== "photos"}>
             <div className="story-section-heading">
               <span>01</span>
               <h2>挑选照片</h2>
@@ -490,11 +619,15 @@ function StoryEditor({
               </button>
             )}
           </section>
-          <section className="story-panel">
+          <section className="story-panel" hidden={panel !== "photos"}>
             <div className="story-section-heading">
               <span>02</span>
-              <h2>安排顺序</h2>
-              <small>用箭头调整播放顺序</small>
+              <h2>{isZineTemplate(template) ? "照片清单" : "安排顺序"}</h2>
+              <small>
+                {isZineTemplate(template)
+                  ? "跨页顺序在下方的版面中调整"
+                  : "用箭头调整播放顺序"}
+              </small>
             </div>
             {!selected.length ? (
               <p className="story-muted">先选择照片，它们会出现在这里。</p>
@@ -544,8 +677,31 @@ function StoryEditor({
               </div>
             )}
           </section>
+          {panel === "design" && zineConfig && (
+            <ZineEditor
+              template={template}
+              config={zineConfig}
+              photos={selected}
+              title={title}
+              onChange={setZineConfig}
+              renderPhoto={(photo) => {
+                const sourcePhoto = selected.find((p) => p.id === photo.id);
+                return sourcePhoto ? (
+                  <StoryImage
+                    key={sourcePhoto.id}
+                    photo={sourcePhoto}
+                    urls={urls}
+                    full
+                  />
+                ) : null;
+              }}
+            />
+          )}
+          {panel === "music" && (
+            <MusicSettings draft={musicDraft} onChange={setMusicDraft} />
+          )}
         </div>
-        <aside className="story-work-side">
+        <aside className="story-work-side" data-panel={panel}>
           <section className="story-panel">
             <div className="story-section-heading">
               <span>03</span>
@@ -557,39 +713,98 @@ function StoryEditor({
                 maxLength={80}
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}
-                placeholder="例如：东京旅行"
+                placeholder="填写影集名称"
               />
             </label>
-            <p className="story-control-label">画面模板</p>
-            <div className="story-template-options">
-              {(["journal", "cinema", "postcard"] as Template[]).map(
-                (option) => (
+            <div className="story-appearance-options">
+              <p className="story-control-label">画面模板</p>
+              <div className="story-template-options">
+                {(
+                  ["zine-city", "zine-diary", "zine-coast"] as ZineTemplate[]
+                ).map((option) => (
                   <button
                     key={option}
                     type="button"
                     className={`story-template-choice story-template-${option}${template === option ? " active" : ""}`}
                     aria-pressed={template === option}
-                    onClick={() => setTemplate(option)}
+                    onClick={() => {
+                      if (isZineTemplate(template) && zineConfig)
+                        themeDrafts.current.set(template, zineConfig);
+                      if (isZineTemplate(option))
+                        setZineConfig(
+                          syncZineConfig(
+                            themeDrafts.current.get(option) || null,
+                            selected,
+                            option,
+                          ),
+                        );
+                      setTemplate(option);
+                      setBackgroundDraft(
+                        themeDrafts.current.get(option)?.background_color ||
+                          getZineCollection(option).paper,
+                      );
+                    }}
                   >
                     <span className="story-template-mini" />
                     {templateNames[option]}
                   </button>
-                ),
-              )}
-            </div>
-            <p className="story-control-label">切换动画</p>
-            <div className="story-transition-options">
-              {(["slide", "fade", "zoom"] as Transition[]).map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  aria-pressed={transition === option}
-                  className={transition === option ? "active" : ""}
-                  onClick={() => setTransition(option)}
-                >
-                  {transitionNames[option]}
-                </button>
-              ))}
+                ))}
+              </div>
+              <label className="story-color-label">
+                背景颜色
+                <div>
+                  <input
+                    type="color"
+                    aria-label="选择背景颜色"
+                    value={
+                      normalizeColor(backgroundDraft) ||
+                      getZineCollection(template).paper
+                    }
+                    onChange={(e) => {
+                      setBackgroundDraft(e.target.value);
+                      setZineConfig((old) =>
+                        old
+                          ? {
+                              ...old,
+                              background_color: e.target.value.toUpperCase(),
+                            }
+                          : old,
+                      );
+                    }}
+                  />
+                  <input
+                    aria-label="背景颜色代码"
+                    maxLength={7}
+                    value={backgroundDraft}
+                    onChange={(e) => {
+                      setBackgroundDraft(e.target.value);
+                      const color = normalizeColor(e.target.value);
+                      if (color)
+                        setZineConfig((old) =>
+                          old ? { ...old, background_color: color } : old,
+                        );
+                    }}
+                    spellCheck={false}
+                  />
+                </div>
+                {!normalizeColor(backgroundDraft) && (
+                  <small>请输入 #RGB 或 #RRGGBB 颜色代码</small>
+                )}
+              </label>
+              <p className="story-control-label">切换动画</p>
+              <div className="story-transition-options">
+                {(["slide", "fade", "zoom"] as Transition[]).map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    aria-pressed={transition === option}
+                    className={transition === option ? "active" : ""}
+                    onClick={() => setTransition(option)}
+                  >
+                    {transitionNames[option]}
+                  </button>
+                ))}
+              </div>
             </div>
             <label className="story-share-label">
               <input
@@ -606,14 +821,33 @@ function StoryEditor({
               </span>
             </label>
           </section>
-          <div className={`story-editor-preview story-template-${template}`}>
-            <span>PREVIEW / {String(selected.length).padStart(2, "0")}</span>
-            {selected[0] && <StoryImage photo={selected[0]} urls={urls} />}
-            <strong>{title || "你的影集"}</strong>
-            <small>
-              {templateNames[template]} · {transitionNames[transition]}
-            </small>
-          </div>
+          {zineConfig?.pages[0] && (
+            <div className="story-live-preview">
+              <ZineSpread
+                collection={getZineCollection(template)}
+                page={zineConfig.pages[0]}
+                photos={selected}
+                title={title || "你的影集"}
+                background={zineConfig.background_color}
+                renderPhoto={(photo) => (
+                  <StoryImage
+                    photo={selected.find((p) => p.id === photo.id)!}
+                    urls={urls}
+                    full
+                  />
+                )}
+              />
+              <strong>{title || "你的影集"}</strong>
+              <small>{templateNames[template]}</small>
+            </div>
+          )}
+          {isZineTemplate(template) && (
+            <p className="zine-help">
+              {getZineCollection(template).fonts}
+              <br />
+              固定排版 · 自动照片资料 · 可填写短句
+            </p>
+          )}
           {storyID && (
             <div className="story-delete">
               {deleteConfirm ? (
@@ -654,28 +888,75 @@ function StoryEditor({
   );
 }
 
+function normalizedStory(story: StoryResult) {
+  const template = isZineTemplate(story.template)
+    ? story.template
+    : story.template === "cinema"
+      ? "zine-city"
+      : story.template === "postcard"
+        ? "zine-coast"
+        : "zine-diary";
+  return {
+    ...story,
+    template,
+    zine_config: story.zine_config || newZineConfig(story.photos, template),
+  };
+}
 function StoryPlayer({ client, storyID }: { client: Client; storyID: string }) {
-  const [story, setStory] = useState<StoryResult | null>(null);
-  const [index, setIndex] = useState(0);
-  const [playing, setPlaying] = useState(false);
-  const [direction, setDirection] = useState<"next" | "previous">("next");
+  return <StoryReader client={client} storyID={storyID} />;
+}
+export function PublicStoryReader({ token }: { token: string }) {
+  return <StoryReader publicToken={token} />;
+}
+function StoryReader({
+  client,
+  storyID,
+  publicToken,
+}: {
+  client?: Client;
+  storyID?: string;
+  publicToken?: string;
+}) {
+  const [story, setStory] = useState<ReturnType<typeof normalizedStory> | null>(
+    null,
+  );
+  const lastGood = useRef(false);
   const [error, setError] = useState("");
-  const touchStart = useRef<{ x: number; y: number } | null>(null);
   useEffect(() => {
     let live = true;
-    client
-      .request<StoryResult>(`/v1/stories/${storyID}`)
-      .then((result) => {
-        if (live) setStory(result);
-      })
-      .catch((error) => {
-        if (live) setError(showError(error));
-      });
+    const controller = new AbortController();
+    async function load() {
+      try {
+        const result = publicToken
+          ? await publicRequest<StoryResult>(
+              "/v1/public/stories/" + publicToken,
+              controller.signal,
+            )
+          : await client!.request<StoryResult>("/v1/stories/" + storyID);
+        if (live) {
+          lastGood.current = true;
+          setStory(normalizedStory(result));
+          setError("");
+        }
+      } catch (e) {
+        if (
+          live &&
+          (!lastGood.current ||
+            (e instanceof RequestError && [401, 403, 404].includes(e.status)))
+        )
+          setError(showError(e));
+      }
+    }
+    void load();
+    const interval = window.setInterval(() => {
+      if (!document.hidden) void load();
+    }, 240000);
     return () => {
       live = false;
+      controller.abort();
+      window.clearInterval(interval);
     };
-  }, [client, storyID]);
-  const photos = story?.photos || [];
+  }, [client, storyID, publicToken]);
   const urls = useMemo(
     () =>
       Object.fromEntries(
@@ -683,178 +964,52 @@ function StoryPlayer({ client, storyID }: { client: Client; storyID: string }) {
       ),
     [story],
   );
-  const current = photos[index];
-  function go(next: number) {
-    if (next < 0 || next >= photos.length || next === index) return;
-    setDirection(next > index ? "next" : "previous");
-    setIndex(next);
-    if (next === photos.length - 1) setPlaying(false);
-  }
-  useEffect(() => {
-    if (!playing || photos.length < 2) return;
-    const timer = window.setTimeout(() => go(index + 1), 5000);
-    return () => window.clearTimeout(timer);
-  }, [playing, index, photos.length]);
-  useEffect(() => {
-    const next = photos[index + 1];
-    const asset = next && assetFor(next, true);
-    if (asset && urls[asset.id] && !cachedImage(asset.id) && !localDemo)
-      void imageInSession(asset.id, urls[asset.id]).catch(() => {});
-  }, [index, story]);
-  useEffect(() => {
-    const key = (event: KeyboardEvent) => {
-      if (event.key === "ArrowLeft") go(index - 1);
-      if (event.key === "ArrowRight") go(index + 1);
-      if (event.key === "Escape") location.hash = "/stories";
-      if (
-        event.code === "Space" &&
-        !["INPUT", "BUTTON"].includes((event.target as HTMLElement).tagName)
-      ) {
-        event.preventDefault();
-        setPlaying((value) => !value);
-      }
-    };
-    window.addEventListener("keydown", key);
-    return () => window.removeEventListener("keydown", key);
-  }, [index, photos.length]);
   if (error)
     return (
-      <div className="story-player-error">
-        <p role="alert">{error}</p>
-        <a href="#/stories">返回影集</a>
-      </div>
+      <section className="story-reader-error">
+        <h1>影集暂时无法打开</h1>
+        <p role="alert">
+          {publicToken ? "观看链接可能已关闭，或当前网络无法连接。" : error}
+        </p>
+        <a href="#/stories">返回相册</a>
+      </section>
     );
   if (!story)
     return (
       <p className="story-loading">
         <RefreshCw size={18} className="spin" />
-        正在放映…
+        正在打开影集…
       </p>
     );
   return (
-    <div
-      className={`story-player story-template-${story.template}`}
-      role="region"
-      aria-label={`影集 ${story.title}`}
-    >
-      <header className="story-player-header">
-        <a href="#/stories" aria-label="关闭影集">
-          <X size={25} />
-        </a>
-        <span>
-          唯味相册 <i /> {story.title}
-        </span>
-        <div>
-          {story.is_owner && (
-            <a href={`#/stories/${story.id}/edit`}>编辑影集</a>
-          )}
-          <span>
-            {photos.length ? `${index + 1} / ${photos.length}` : "0 / 0"}
-          </span>
-        </div>
-      </header>
-      {!current ? (
-        <div className="story-player-empty">
-          <Images size={45} />
-          <h2>这本影集暂时没有可看的照片</h2>
-          <p>照片被删除或移出共享后，就不会在这里显示。</p>
-        </div>
-      ) : (
+    <ZinePlayer
+      key={story.id}
+      story={story}
+      publicView={!!publicToken}
+      toolbar={
         <>
-          <div
-            className="story-player-stage"
-            onTouchStart={(event) => {
-              touchStart.current = {
-                x: event.changedTouches[0].clientX,
-                y: event.changedTouches[0].clientY,
-              };
-            }}
-            onTouchEnd={(event) => {
-              if (!touchStart.current) return;
-              const dx = event.changedTouches[0].clientX - touchStart.current.x;
-              const dy = event.changedTouches[0].clientY - touchStart.current.y;
-              touchStart.current = null;
-              if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.3)
-                go(index + (dx < 0 ? 1 : -1));
-            }}
-          >
-            <div className="story-player-meta">
-              <span className="story-frame-label">
-                {templateNames[story.template]} /{" "}
-                {String(index + 1).padStart(2, "0")}
-              </span>
-              <h1>
-                {index === 0 ? story.title : current.title || story.title}
-              </h1>
-              <span className="story-meta-rule" />
-              {current.location_label && <p>{current.location_label}</p>}
-              {current.captured_local && (
-                <small>
-                  {current.captured_local.slice(0, 10).replaceAll("-", ".")}
-                </small>
-              )}
-            </div>
-            <div className="story-player-frame">
-              <div
-                key={`${current.id}-${index}`}
-                className={`story-player-image story-motion-${story.transition} story-direction-${direction}`}
-              >
-                <StoryImage photo={current} urls={urls} full eager />
-              </div>
-            </div>
-            <button
-              type="button"
-              className="story-player-arrow previous"
-              aria-label="上一张"
-              disabled={index === 0}
-              onClick={() => go(index - 1)}
-            >
-              <ChevronLeft size={26} />
-            </button>
-            <button
-              type="button"
-              className="story-player-arrow next"
-              aria-label="下一张"
-              disabled={index === photos.length - 1}
-              onClick={() => go(index + 1)}
-            >
-              <ChevronRight size={26} />
-            </button>
-          </div>
-          <footer className="story-player-footer">
-            <div className="story-player-controls">
-              <button
-                type="button"
-                onClick={() => {
-                  if (index === photos.length - 1) setIndex(0);
-                  setPlaying((value) => !value);
-                }}
-                aria-label={playing ? "暂停放映" : "自动放映"}
-              >
-                {playing ? <Pause size={19} /> : <Play size={19} />}
-                <span>{playing ? "暂停" : "自动放映"}</span>
-              </button>
-              <span>左右滑动或使用方向键切换</span>
-            </div>
-            <div className="story-progress" aria-label="影集进度">
-              {photos.map((photo, photoIndex) => (
-                <button
-                  key={photo.id}
-                  type="button"
-                  aria-label={`第 ${photoIndex + 1} 张`}
-                  aria-current={photoIndex === index ? "step" : undefined}
-                  className={photoIndex <= index ? "seen" : ""}
-                  onClick={() => go(photoIndex)}
-                />
-              ))}
-            </div>
-            <span className="story-player-count">
-              {String(index + 1).padStart(2, "0")} /{" "}
-              {String(photos.length).padStart(2, "0")}
-            </span>
-          </footer>
+          <MusicHost storyID={story.id} music={story.music} />
+          {client && story.is_owner && (
+            <StoryExport story={story} client={client} />
+          )}
         </>
+      }
+      renderPhoto={(photo) => (
+        <StoryImage
+          photo={story.photos.find((p) => p.id === photo.id)!}
+          urls={urls}
+          full
+          eager
+        />
       )}
-    </div>
+      prefetch={(ids) => {
+        for (const id of ids) {
+          const photo = story.photos.find((p) => p.id === id);
+          const asset = photo && assetFor(photo, true);
+          if (asset && urls[asset.id] && !cachedImage(asset.id))
+            void imageInSession(asset.id, urls[asset.id]).catch(() => {});
+        }
+      }}
+    />
   );
 }

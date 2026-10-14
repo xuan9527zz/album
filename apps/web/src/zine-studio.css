@@ -1,0 +1,240 @@
+.zine-editor {
+  margin-top: 20px;
+}
+.zine-editor-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: end;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.zine-editor-toolbar label {
+  flex: 1;
+  min-width: 180px;
+}
+.zine-editor label {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 14px;
+}
+.zine-editor select,
+.zine-editor textarea {
+  display: block;
+  width: 100%;
+  margin-top: 7px;
+  min-width: 0;
+  font:
+    16px Arial,
+    "Microsoft YaHei",
+    sans-serif;
+  color: #263c32;
+  border: 1px solid #ccd5ca;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fff;
+}
+.zine-editor textarea {
+  resize: vertical;
+  line-height: 1.5;
+}
+.zine-editor label > small {
+  display: block;
+  font-size: 12px;
+  font-weight: 400;
+  text-align: right;
+  margin-top: 4px;
+  color: #627765;
+}
+.zine-editor-toolbar button,
+.zine-half-controls button,
+.zine-unassigned button,
+.zine-remove-page {
+  border: 1px solid #cdd5c8;
+  border-radius: 7px;
+  min-height: 44px;
+  padding: 8px 11px;
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  color: #31523d;
+  background: #f5f7f0;
+  font-size: 13px;
+}
+.zine-editor-toolbar button:disabled,
+.zine-remove-page:disabled {
+  opacity: 0.4;
+}
+.zine-half-controls {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.zine-half-controls button[aria-pressed="true"] {
+  background: #315b44;
+  color: #fff;
+}
+.zine-layout-label {
+  max-width: 560px;
+}
+.zine-edit-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 28px;
+  margin-top: 24px;
+}
+.zine-edit-columns h3 {
+  margin: 0 0 8px;
+  font-size: 17px;
+}
+.zine-help {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #627564;
+  margin: 0 0 14px;
+}
+.zine-auto-fields > div {
+  padding: 11px 0;
+  border-top: 1px solid #dde3d6;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.zine-auto-fields strong,
+.zine-auto-fields span {
+  display: block;
+  margin-bottom: 5px;
+}
+.zine-unassigned {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #68572f;
+  margin: 20px 0 0;
+}
+.zine-unassigned button {
+  margin-left: 10px;
+}
+.zine-remove-page {
+  margin-top: 16px;
+  color: #9f533d;
+}
+.story-template-zine-city .story-template-mini {
+  background: linear-gradient(
+    90deg,
+    #f1f0e8 0 49%,
+    #526f75 49% 93%,
+    #b64b32 93%
+  );
+}
+.story-template-zine-diary .story-template-mini {
+  background: linear-gradient(90deg, #f3ede2 0 50%, #9c9a83 50%);
+}
+.story-template-zine-coast .story-template-mini {
+  background: linear-gradient(90deg, #f5f7f2 0 50%, #81bbce 50%);
+}
+.zine-book-player {
+  background: #e9e7e0 !important;
+  color: #283a31 !important;
+}
+.zine-book-player .story-player-header,
+.zine-book-player .story-player-footer {
+  border-color: #76867533;
+}
+.zine-book-player .story-player-header span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.zine-book-player .story-player-header > div {
+  flex-shrink: 0;
+}
+.zine-player-stage {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 22px 62px;
+  overflow: auto;
+  touch-action: pan-y;
+}
+.zine-player-turn {
+  width: 100%;
+  min-width: 0;
+  max-width: 1440px;
+}
+.zine-book-player .zine-frame {
+  max-width: min(100%, calc((100dvh - 235px) * 1.5));
+}
+.zine-book-player .zine-view-left,
+.zine-book-player .zine-view-right {
+  max-width: min(100%, calc((100dvh - 235px) * 0.75));
+}
+.zine-book-player .zine-reading-text {
+  max-width: 950px;
+  margin: 8px auto 0;
+}
+.zine-book-player .story-player-arrow {
+  background: #fbfbf4;
+  color: #314e3b;
+  border-color: #60715755;
+}
+.zine-book-player .story-player-footer {
+  gap: 16px;
+}
+.zine-page-range {
+  flex: 1;
+  width: auto;
+  min-width: 30px;
+  accent-color: #507059;
+}
+.zine-book-player .story-player-count {
+  color: #314e3b;
+}
+.zine-editor .story-section-heading {
+  flex-wrap: wrap;
+}
+.zine-editor .story-section-heading small {
+  max-width: 100%;
+}
+@media (max-width: 680px) {
+  .zine-edit-columns {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+  .zine-player-stage {
+    padding: 14px 44px;
+  }
+  .zine-book-player .story-player-header {
+    padding: 0 13px;
+    gap: 10px;
+  }
+  .zine-book-player .story-player-header > div {
+    gap: 8px;
+  }
+  .zine-book-player .story-player-footer {
+    padding: 0 13px;
+    gap: 10px;
+  }
+  .zine-book-player .story-player-controls button {
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .zine-editor-toolbar {
+    align-items: center;
+  }
+  .zine-editor-toolbar label {
+    width: 100%;
+    flex-basis: 100%;
+  }
+  .zine-unassigned button {
+    margin: 8px 0 0;
+    display: flex;
+  }
+  .zine-book-player .story-player-arrow.previous {
+    left: 2px;
+  }
+  .zine-book-player .story-player-arrow.next {
+    right: 2px;
+  }
+}

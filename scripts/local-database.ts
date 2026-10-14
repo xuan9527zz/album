@@ -20,31 +20,64 @@ export async function localDatabase(): Promise<{ sql: PGlite; db: DB }> {
   );
   await sql.exec(
     await readFile(
-      new URL("../supabase/migrations/202610130001_shared_album_profiles.sql", import.meta.url),
+      new URL(
+        "../supabase/migrations/202610130001_shared_album_profiles.sql",
+        import.meta.url,
+      ),
       "utf8",
     ),
   );
   await sql.exec(
     await readFile(
-      new URL("../supabase/migrations/202610130002_trash_batch_search.sql", import.meta.url),
+      new URL(
+        "../supabase/migrations/202610130002_trash_batch_search.sql",
+        import.meta.url,
+      ),
       "utf8",
     ),
   );
   await sql.exec(
     await readFile(
-      new URL("../supabase/migrations/202610130003_shared_comments.sql", import.meta.url),
+      new URL(
+        "../supabase/migrations/202610130003_shared_comments.sql",
+        import.meta.url,
+      ),
       "utf8",
     ),
   );
   await sql.exec(
     await readFile(
-      new URL("../supabase/migrations/202610130004_messages_likes_titles_push.sql", import.meta.url),
+      new URL(
+        "../supabase/migrations/202610130004_messages_likes_titles_push.sql",
+        import.meta.url,
+      ),
       "utf8",
     ),
   );
   await sql.exec(
     await readFile(
-      new URL("../supabase/migrations/202610140001_story_albums.sql", import.meta.url),
+      new URL(
+        "../supabase/migrations/202610140001_story_albums.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  await sql.exec(
+    await readFile(
+      new URL(
+        "../supabase/migrations/202610140002_zine_templates.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  await sql.exec(
+    await readFile(
+      new URL(
+        "../supabase/migrations/202610140003_story_music_public.sql",
+        import.meta.url,
+      ),
       "utf8",
     ),
   );
@@ -57,7 +90,21 @@ export async function localDatabase(): Promise<{ sql: PGlite; db: DB }> {
   }
   const db: DB = {
     async call(name, args) {
-      if (!["album_action", "album_v2_action", "album_v3_action", "album_v4_action", "album_v5_action", "album_v6_action", "album_maintenance", "album_v3_maintenance"].includes(name))
+      if (
+        ![
+          "album_action",
+          "album_v2_action",
+          "album_v3_action",
+          "album_v4_action",
+          "album_v5_action",
+          "album_v6_action",
+          "album_v7_action",
+          "album_v8_action",
+          "album_story_public",
+          "album_maintenance",
+          "album_v3_maintenance",
+        ].includes(name)
+      )
         throw new Error("RPC_NOT_ALLOWED");
       const keys = Object.keys(args);
       const r = await sql.query<{ result: any }>(

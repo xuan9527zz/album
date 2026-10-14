@@ -6,6 +6,7 @@ import { LocalStore } from "../scripts/local-store";
 import { createHandler, cleanUp } from "../apps/api/src/handler";
 import { R2Store, sniff } from "../apps/api/src/storage";
 import { localEXIFDate } from "../apps/web/src/files";
+import { newZineConfig } from "../packages/zine/src/model";
 let database: Awaited<ReturnType<typeof localDatabase>>,
   store: LocalStore,
   handler: ReturnType<typeof createHandler>,
@@ -324,8 +325,9 @@ describe("real SQL migration + API, simulated object transport", () => {
       photoIDs.push(upload.session.photo_id);
     }
     const story = {
-      title: "东京", template: "journal", transition: "slide", is_shared: false,
+      title: "东京", template: "zine-city", transition: "slide", is_shared: false,
       photo_ids: photoIDs,
+      zine_config: newZineConfig(photoIDs.map((id) => ({ id, title: null, captured_local: null, location_label: null })), "zine-city"),
     };
     const first = await api("/v1/stories", story);
     expect(first.status).toBe(201);

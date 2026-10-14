@@ -5,6 +5,7 @@ import {
   type AssetSpec,
 } from "../../../packages/shared/src/index";
 import { md5Hex, sniff, type ObjectStore } from "./storage";
+import { storyBodySchema } from "../../../packages/zine/src/schema";
 export interface DB {
   call(name: string, args: Record<string, unknown>): Promise<any>;
 }
@@ -16,7 +17,16 @@ export interface Dependencies {
   uploadTTL: number;
   readTTL: number;
   vapidPublicKey?: string;
-  push?: (deliveries: Array<{ endpoint: string; p256dh: string; auth: string; kind: string; actor_name: string; photo_id: string | null }>) => void;
+  push?: (
+    deliveries: Array<{
+      endpoint: string;
+      p256dh: string;
+      auth: string;
+      kind: string;
+      actor_name: string;
+      photo_id: string | null;
+    }>,
+  ) => void;
 }
 const id = z.string().uuid();
 const publicErrors: Record<string, [number, string]> = {
@@ -36,6 +46,7 @@ const publicErrors: Record<string, [number, string]> = {
   STORAGE_UNAVAILABLE: [503, "文件服务暂不可用，请稍后重试"],
   COMMENT_LIMIT: [409, "这张照片的评论已达上限"],
   STORY_LIMIT: [409, "影集最多保存 50 本"],
+  PUBLIC_OWN_PHOTOS_ONLY: [409, "公开观看链接只能包含你自己的照片"],
 };
 class APIError extends Error {
   constructor(
@@ -105,6 +116,29 @@ export function createHandler(d: Dependencies) {
       const path = url.pathname;
       if (path === "/health" && request.method === "GET")
         return response({ status: "ok" });
+      const publicStory = path.match(/^\/v1\/public\/stories\/([0-9a-f]{64})$/);
+      if (publicStory && request.method === "GET") {
+        const digest = await crypto.subtle.digest(
+          "SHA-256",
+          new TextEncoder().encode(publicStory[1]),
+        );
+        const tokenHash = Array.from(new Uint8Array(digest), (value) =>
+          value.toString(16).padStart(2, "0"),
+        ).join("");
+        const { preview_assets, ...story } = await d.db.call(
+          "album_story_public",
+          { p_token_hash: tokenHash },
+        );
+        return response({
+          ...story,
+          urls: await Promise.all(
+            preview_assets.map(async (asset: any) => ({
+              id: asset.id,
+              url: await d.store.grantGet(asset.object_key, d.readTTL),
+            })),
+          ),
+        });
+      }
       const bearer = request.headers
         .get("Authorization")
         ?.match(/^Bearer (.+)$/)?.[1];
@@ -141,27 +175,49 @@ export function createHandler(d: Dependencies) {
           p_action: action,
           p_data: data,
         });
-      const callV6 = (action: string, data: unknown = {}) =>
-        d.db.call("album_v6_action", {
+      const callV8 = (action: string, data: unknown = {}) =>
+        d.db.call("album_v8_action", {
           p_owner: owner,
           p_action: action,
           p_data: data,
         });
       const pushEvent = async (sourceID: string) => {
         if (!d.push) return;
-        try { d.push(await callV5("push_event", { source_id: sourceID })); }
-        catch { /* A failed push must not undo a saved comment, like, or message. */ }
+        try {
+          d.push(await callV5("push_event", { source_id: sourceID }));
+        } catch {
+          /* A failed push must not undo a saved comment, like, or message. */
+        }
       };
-      const signedPreviews = async (photos: any[], trashed = false, detail = false) => {
-        const ids = [...new Set(photos.map((p) => detail
-          ? p.assets.find((a: any) => a.role === "preview")?.id
-          : (p.assets.find((a: any) => a.role === "thumbnail") ||
-             p.assets.find((a: any) => a.role === "preview"))?.id).filter(Boolean))];
+      const signedPreviews = async (
+        photos: any[],
+        trashed = false,
+        detail = false,
+      ) => {
+        const ids = [
+          ...new Set(
+            photos
+              .map((p) =>
+                detail
+                  ? p.assets.find((a: any) => a.role === "preview")?.id
+                  : (
+                      p.assets.find((a: any) => a.role === "thumbnail") ||
+                      p.assets.find((a: any) => a.role === "preview")
+                    )?.id,
+              )
+              .filter(Boolean),
+          ),
+        ];
         if (!ids.length) return [];
-        const records = await callV3(trashed ? "read_trashed" : "read", { ids });
-        return Promise.all(records.map(async (a: any) => ({
-          id: a.id, url: await d.store.grantGet(a.object_key, d.readTTL),
-        })));
+        const records = await callV3(trashed ? "read_trashed" : "read", {
+          ids,
+        });
+        return Promise.all(
+          records.map(async (a: any) => ({
+            id: a.id,
+            url: await d.store.grantGet(a.object_key, d.readTTL),
+          })),
+        );
       };
       const grants = async (sessionID: string) => {
         const items = await call("grants", {
@@ -188,43 +244,93 @@ export function createHandler(d: Dependencies) {
         );
       };
       if (path === "/v1/me" && request.method === "GET")
-        return response({ ...(await callV3("summary")), ...(await callV2("profile_read")) });
+        return response({
+          ...(await callV3("summary")),
+          ...(await callV2("profile_read")),
+        });
       if (path === "/v1/me" && request.method === "PATCH") {
-        const profile = z.object({
-          display_name: z.string().trim().min(1).max(40).optional(),
-          avatar_data_url: z.string().regex(/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/).max(90000).nullable().optional(),
-        }).strict().refine((v) => Object.keys(v).length > 0).parse(await readJSON(request));
+        const profile = z
+          .object({
+            display_name: z.string().trim().min(1).max(40).optional(),
+            avatar_data_url: z
+              .string()
+              .regex(/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/)
+              .max(90000)
+              .nullable()
+              .optional(),
+          })
+          .strict()
+          .refine((v) => Object.keys(v).length > 0)
+          .parse(await readJSON(request));
         return response(await callV2("profile", profile));
       }
       if (path === "/v1/usage" && request.method === "GET")
         return response(await callV3("summary"));
       if (path === "/v1/members" && request.method === "GET")
         return response(await callV3("members"));
-      const storyBody = z.object({
-        title: z.string().trim().min(1).max(80),
-        template: z.enum(["journal", "cinema", "postcard"]),
-        transition: z.enum(["slide", "fade", "zoom"]),
-        is_shared: z.boolean(),
-        photo_ids: z.array(id).min(2).max(60).refine((ids) => new Set(ids).size === ids.length),
-      }).strict();
+      const storyBody = storyBodySchema;
       if (path === "/v1/stories" && request.method === "GET") {
-        const result = await callV6("list");
-        const covers = result.stories.map((story: any) => story.cover_photo).filter(Boolean);
-        return response({ stories: result.stories, urls: await signedPreviews(covers) });
+        const result = await callV8("list");
+        const covers = result.stories
+          .map((story: any) => story.cover_photo)
+          .filter(Boolean);
+        return response({
+          stories: result.stories,
+          urls: await signedPreviews(covers),
+        });
       }
       if (path === "/v1/stories" && request.method === "POST")
-        return response(await callV6("create", storyBody.parse(await readJSON(request))), 201);
+        return response(
+          await callV8("create", storyBody.parse(await readJSON(request))),
+          201,
+        );
       const storyMatch = path.match(/^\/v1\/stories\/([^/]+)$/);
+      const storyShare = path.match(/^\/v1\/stories\/([^/]+)\/share$/);
+      if (storyShare) {
+        const storyID = id.parse(storyShare[1]);
+        if (request.method === "GET")
+          return response(await callV8("share_status", { story_id: storyID }));
+        if (request.method === "DELETE")
+          return response(await callV8("share_revoke", { story_id: storyID }));
+        if (request.method === "POST") {
+          const token = Array.from(
+            crypto.getRandomValues(new Uint8Array(32)),
+            (value) => value.toString(16).padStart(2, "0"),
+          ).join("");
+          const digest = await crypto.subtle.digest(
+            "SHA-256",
+            new TextEncoder().encode(token),
+          );
+          const tokenHash = Array.from(new Uint8Array(digest), (value) =>
+            value.toString(16).padStart(2, "0"),
+          ).join("");
+          return response({
+            ...(await callV8("share_create", {
+              story_id: storyID,
+              token_hash: tokenHash,
+            })),
+            token,
+          });
+        }
+      }
       if (storyMatch) {
         const storyID = id.parse(storyMatch[1]);
         if (request.method === "GET") {
-          const story = await callV6("detail", { story_id: storyID });
-          return response({ ...story, urls: await signedPreviews(story.photos, false, true) });
+          const story = await callV8("detail", { story_id: storyID });
+          return response({
+            ...story,
+            urls: await signedPreviews(story.photos, false, true),
+          });
         }
         if (request.method === "PATCH")
-          return response(await callV6("update", { story_id: storyID, ...storyBody.parse(await readJSON(request)) }));
+          return response(
+            await callV8("update", {
+              story_id: storyID,
+              ...storyBody.parse(await readJSON(request)),
+            }),
+          );
         if (request.method === "DELETE")
-          return response(await callV6("delete", { story_id: storyID }));
+          return response(await callV8("delete", { story_id: storyID }));
       }
       if (path === "/v1/notifications" && request.method === "GET")
         return response(await callV5("notifications"));
@@ -233,7 +339,10 @@ export function createHandler(d: Dependencies) {
       if (path === "/v1/chat" && request.method === "GET")
         return response(await callV5("chat_list"));
       if (path === "/v1/chat" && request.method === "POST") {
-        const body = z.object({ body: z.string().trim().min(1).max(300) }).strict().parse(await readJSON(request));
+        const body = z
+          .object({ body: z.string().trim().min(1).max(300) })
+          .strict()
+          .parse(await readJSON(request));
         const sent = await callV5("chat_send", body);
         await pushEvent(sent.id);
         return response(sent, 201);
@@ -241,20 +350,43 @@ export function createHandler(d: Dependencies) {
       if (path === "/v1/push/key" && request.method === "GET")
         return response({ public_key: d.vapidPublicKey || null });
       if (path === "/v1/push/subscription" && request.method === "POST") {
-        const body = z.object({
-          endpoint: z.url().max(1500).refine((value) => {
-            const host = new URL(value).hostname;
-            return new URL(value).protocol === "https:" && (
-              host === "web.push.apple.com" || host.endsWith(".push.apple.com") ||
-              host === "fcm.googleapis.com" || host === "updates.push.services.mozilla.com" ||
-              host.endsWith(".push.services.mozilla.com"));
+        const body = z
+          .object({
+            endpoint: z
+              .url()
+              .max(1500)
+              .refine((value) => {
+                const host = new URL(value).hostname;
+                return (
+                  new URL(value).protocol === "https:" &&
+                  (host === "web.push.apple.com" ||
+                    host.endsWith(".push.apple.com") ||
+                    host === "fcm.googleapis.com" ||
+                    host === "updates.push.services.mozilla.com" ||
+                    host.endsWith(".push.services.mozilla.com"))
+                );
+              }),
+            keys: z
+              .object({
+                p256dh: z.string().min(40).max(200),
+                auth: z.string().min(10).max(100),
+              })
+              .strict(),
+          })
+          .strict()
+          .parse(await readJSON(request));
+        return response(
+          await callV5("push_subscribe", {
+            endpoint: body.endpoint,
+            ...body.keys,
           }),
-          keys: z.object({ p256dh: z.string().min(40).max(200), auth: z.string().min(10).max(100) }).strict(),
-        }).strict().parse(await readJSON(request));
-        return response(await callV5("push_subscribe", { endpoint: body.endpoint, ...body.keys }));
+        );
       }
       if (path === "/v1/push/subscription" && request.method === "DELETE") {
-        const body = z.object({ endpoint: z.url().max(1500) }).strict().parse(await readJSON(request));
+        const body = z
+          .object({ endpoint: z.url().max(1500) })
+          .strict()
+          .parse(await readJSON(request));
         return response(await callV5("push_unsubscribe", body));
       }
       if (path === "/v1/photos" && request.method === "GET") {
@@ -273,8 +405,14 @@ export function createHandler(d: Dependencies) {
         const month = url.searchParams.get("month") || undefined;
         const place = url.searchParams.get("place")?.trim() || undefined;
         const member = url.searchParams.get("owner") || undefined;
-        if (year) z.string().regex(/^(19|20|21)\d{2}$/).parse(year);
-        if (month) z.string().regex(/^(0?[1-9]|1[0-2])$/).parse(month);
+        if (year)
+          z.string()
+            .regex(/^(19|20|21)\d{2}$/)
+            .parse(year);
+        if (month)
+          z.string()
+            .regex(/^(0?[1-9]|1[0-2])$/)
+            .parse(month);
         if (place) z.string().max(120).parse(place);
         if (member) id.parse(member);
         const photos = (
@@ -306,21 +444,52 @@ export function createHandler(d: Dependencies) {
         });
       }
       if (path === "/v1/photos/batch" && request.method === "POST") {
-        const body = z.object({
-          ids: z.array(id).min(1).max(50).refine((ids) => new Set(ids).size === ids.length),
-          operation: z.enum(["feature_on", "feature_off", "share_on", "share_off", "trash"]),
-        }).strict().parse(await readJSON(request));
+        const body = z
+          .object({
+            ids: z
+              .array(id)
+              .min(1)
+              .max(50)
+              .refine((ids) => new Set(ids).size === ids.length),
+            operation: z.enum([
+              "feature_on",
+              "feature_off",
+              "share_on",
+              "share_off",
+              "trash",
+            ]),
+          })
+          .strict()
+          .parse(await readJSON(request));
         return response(await callV3("batch", body));
       }
       if (path === "/v1/trash" && request.method === "GET") {
         const cursorParam = url.searchParams.get("cursor");
-        const cursor = cursorParam ? z.object({
-          deleted_at: z.string().datetime({ offset: true }), id,
-        }).parse(JSON.parse(atob(cursorParam))) : undefined;
-        const photos = (await callV3("trash_list", { limit: 24, ...(cursor ? { cursor } : {}) })).photos;
+        const cursor = cursorParam
+          ? z
+              .object({
+                deleted_at: z.string().datetime({ offset: true }),
+                id,
+              })
+              .parse(JSON.parse(atob(cursorParam)))
+          : undefined;
+        const photos = (
+          await callV3("trash_list", {
+            limit: 24,
+            ...(cursor ? { cursor } : {}),
+          })
+        ).photos;
         const last = photos.at(-1);
-        return response({ photos, urls: await signedPreviews(photos, true), next_cursor: photos.length === 24
-          ? btoa(JSON.stringify({ deleted_at: last.deleted_at, id: last.id })) : null });
+        return response({
+          photos,
+          urls: await signedPreviews(photos, true),
+          next_cursor:
+            photos.length === 24
+              ? btoa(
+                  JSON.stringify({ deleted_at: last.deleted_at, id: last.id }),
+                )
+              : null,
+        });
       }
       const trashMatch = path.match(/^\/v1\/trash\/([^/]+)(?:\/(restore))?$/);
       if (trashMatch && trashMatch[1] !== "read-urls") {
@@ -339,15 +508,26 @@ export function createHandler(d: Dependencies) {
         if (!suffix && request.method === "GET") {
           const photo = await callV5("photo", { photo_id: photoID });
           const [preview] = await signedPreviews([photo], false, true);
-          return response({ ...photo, ...(preview ? { preview_grant: preview } : {}) });
+          return response({
+            ...photo,
+            ...(preview ? { preview_grant: preview } : {}),
+          });
         }
         if (suffix === "share" && request.method === "POST")
-          return response(await callV3("share", {
-            photo_id: photoID,
-            ...z.object({ is_shared: z.boolean() }).strict().parse(await readJSON(request)),
-          }));
+          return response(
+            await callV3("share", {
+              photo_id: photoID,
+              ...z
+                .object({ is_shared: z.boolean() })
+                .strict()
+                .parse(await readJSON(request)),
+            }),
+          );
         if (suffix === "like" && request.method === "POST") {
-          const body = z.object({ liked: z.boolean() }).strict().parse(await readJSON(request));
+          const body = z
+            .object({ liked: z.boolean() })
+            .strict()
+            .parse(await readJSON(request));
           const updated = await callV5("like", { photo_id: photoID, ...body });
           if (body.liked) await pushEvent(photoID);
           return response(updated);
@@ -377,20 +557,30 @@ export function createHandler(d: Dependencies) {
           });
         }
       }
-      const commentMatch = path.match(/^\/v1\/photos\/([^/]+)\/comments(?:\/([^/]+))?$/);
+      const commentMatch = path.match(
+        /^\/v1\/photos\/([^/]+)\/comments(?:\/([^/]+))?$/,
+      );
       if (commentMatch) {
         const photoID = id.parse(commentMatch[1]);
         const commentID = commentMatch[2] ? id.parse(commentMatch[2]) : null;
         if (!commentID && request.method === "GET")
           return response(await callV4("list", { photo_id: photoID }));
         if (!commentID && request.method === "POST") {
-          const body = z.object({ body: z.string().trim().min(1).max(30) }).strict().parse(await readJSON(request));
+          const body = z
+            .object({ body: z.string().trim().min(1).max(30) })
+            .strict()
+            .parse(await readJSON(request));
           const added = await callV4("add", { photo_id: photoID, ...body });
           await pushEvent(added.id);
           return response(added, 201);
         }
         if (commentID && request.method === "DELETE")
-          return response(await callV4("delete", { photo_id: photoID, comment_id: commentID }));
+          return response(
+            await callV4("delete", {
+              photo_id: photoID,
+              comment_id: commentID,
+            }),
+          );
       }
       if (
         (path === "/v1/uploads/init" || photoMatch?.[2] === "assets/init") &&
@@ -413,13 +603,17 @@ export function createHandler(d: Dependencies) {
         const digest = Array.from(new Uint8Array(bytes), (n) =>
           n.toString(16).padStart(2, "0"),
         ).join("");
-        const s = await (photoMatch ? callV3("supplement", {
-          ...data, key, digest,
-        }) : call("init", {
-          ...data,
-          key,
-          digest,
-        }));
+        const s = await (photoMatch
+          ? callV3("supplement", {
+              ...data,
+              key,
+              digest,
+            })
+          : call("init", {
+              ...data,
+              key,
+              digest,
+            }));
         return response(
           { session: s, grants: s.state === "open" ? await grants(s.id) : [] },
           201,
@@ -478,7 +672,10 @@ export function createHandler(d: Dependencies) {
           );
         }
       }
-      if ((path === "/v1/assets/read-urls" || path === "/v1/trash/read-urls") && request.method === "POST") {
+      if (
+        (path === "/v1/assets/read-urls" || path === "/v1/trash/read-urls") &&
+        request.method === "POST"
+      ) {
         const body = z
           .object({
             ids: z
@@ -489,7 +686,10 @@ export function createHandler(d: Dependencies) {
           })
           .strict()
           .parse(await readJSON(request));
-        const records = await callV3(path.startsWith("/v1/trash") ? "read_trashed" : "read", { ids: body.ids });
+        const records = await callV3(
+          path.startsWith("/v1/trash") ? "read_trashed" : "read",
+          { ids: body.ids },
+        );
         return response({
           urls: await Promise.all(
             records.map(async (a: any) => ({
@@ -536,7 +736,8 @@ export function createHandler(d: Dependencies) {
 }
 export async function cleanUp(db: DB, store: ObjectStore, dryRun = true) {
   const expiration = await db.call("album_v3_maintenance", {
-    p_action: dryRun ? "due" : "expire", p_data: {},
+    p_action: dryRun ? "due" : "expire",
+    p_data: {},
   });
   const plan = await db.call("album_maintenance", {
     p_action: "plan",

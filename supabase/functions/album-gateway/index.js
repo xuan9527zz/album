@@ -86,7 +86,8 @@ export async function handleAlbumGateway(request, upstreamFetch = fetch) {
   }
   if (path !== "/health" && !path.startsWith("/v1/"))
     return Response.json({ error: { code: "NOT_FOUND" } }, { status: 404, headers: cors });
-  if (path !== "/health" && !request.headers.get("Authorization")?.startsWith("Bearer "))
+  const publicRead = request.method === "GET" && /^\/v1\/public\/stories\/[0-9a-f]{64}$/.test(path);
+  if (path !== "/health" && !publicRead && !request.headers.get("Authorization")?.startsWith("Bearer "))
     return Response.json({ error: { code: "UNAUTHENTICATED" } }, { status: 401, headers: cors });
 
   const headers = new Headers();

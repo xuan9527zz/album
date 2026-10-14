@@ -4,7 +4,9 @@ export const localDemo =
 export const inviteMarker = "album-invite-pending";
 if (
   !localDemo &&
-  ["invite", "recovery"].includes(new URLSearchParams(window.location.hash.slice(1)).get("type") || "")
+  ["invite", "recovery"].includes(
+    new URLSearchParams(window.location.hash.slice(1)).get("type") || "",
+  )
 )
   sessionStorage.setItem(inviteMarker, "1");
 const config = import.meta.env;
@@ -23,6 +25,34 @@ export const auth =
         config.VITE_SUPABASE_PUBLISHABLE_KEY,
       )
     : null;
+export class RequestError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+  ) {
+    super(message);
+  }
+}
+export async function publicRequest<T>(
+  path: string,
+  signal?: AbortSignal,
+): Promise<T> {
+  const r = await fetch(
+    `${localDemo ? "http://127.0.0.1:8788" : config.VITE_API_BASE_URL.replace(/\/$/, "")}${path}`,
+    {
+      cache: "no-store",
+      referrerPolicy: "no-referrer",
+      signal,
+    },
+  );
+  const result = await r.json();
+  if (!r.ok)
+    throw new RequestError(
+      result.error?.message || "观看链接不可用或已关闭",
+      r.status,
+    );
+  return result;
+}
 export class Client {
   readonly controller = new AbortController();
   constructor(public userID: string) {}
@@ -53,7 +83,11 @@ export class Client {
       },
     );
     const data = await r.json();
-    if (!r.ok) throw new Error(data.error?.message || "连接失败，请稍后重试");
+    if (!r.ok)
+      throw new RequestError(
+        data.error?.message || "连接失败，请稍后重试",
+        r.status,
+      );
     return data;
   }
   stop() {
