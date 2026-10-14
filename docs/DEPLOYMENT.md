@@ -34,6 +34,8 @@ Worker 的 `/health` 返回 200，匿名 `/v1/photos` 返回 401；网关相同�
 
 2026-10-15 预装修复：大资源采用流式进度和无数据停滞计时，固定 30 秒的整项中断已移除；正在接收数据的资源可继续，45 秒无数据或单项超过 10 分钟才中断。前台会自动补下缺失项并退避重试，联网和回到前台会重新检查；已完成的资源不重复下载。新界面显示资源名称与 MB 进度，配额不足会提示并保留已有缓存。只改前端和 Service Worker，不新增迁移或修改接口。真实设备验收时核对大字体的 MB 进度、短暂断网后恢复、从主屏幕重新打开及最终“已预装”；不能用本地慢网模拟替代 iPhone 实测。
 
+预装修复已由 [Pages #26](https://github.com/xuan9527zz/album/actions/runs/38600665515) 从 `96c44c3` 发布，[Checks #46](https://github.com/xuan9527zz/album/actions/runs/38600557487) 完整通过。新缓存为 `album-shell-f5ec9935bc9abe`，入口脚本 `index-Cv9sCE16.js`，仍有 31 项公开程序资源。桌面正式 PWA 更新后显示“已预装”，实际 iPhone 复测待完成。数据库仍为九次迁移，API Worker 版本不变。
+
 2026-10-15 更新流程补充：关键 shell 安装完成即可提示切换，大字体和 PDF/HEIC 等工具通过激活后的后台预装继续保存；30 秒超时不会阻止更新。已有字体可跨版本复用，新资源完整准备前保留旧缓存。更新提示高于导出弹窗，回到前台会检查新版，切换以 Worker 实际激活为准。若设备仍显示没有“取消制作”的旧 PDF 窗口，可完全关闭旧相册后在 Safari 打开带 `?refresh=pdf-20261015` 的站点入口再更新。该参数用于绕过旧的入口缓存，不清空家庭数据；真实 iPhone 的新版制作结果仍待确认。
 
 该修复已从 `dcdab82` 通过 [Pages #25](https://github.com/xuan9527zz/album/actions/runs/38594797583) 成功发布，[Checks #43](https://github.com/xuan9527zz/album/actions/runs/38594738765) 完整通过。正式 Worker 缓存 `album-shell-f36538d64c268f`，入口脚本 `index-DeMNPzfk.js`；桌面正式相册更新及实际 3 页 PDF 下载核对完成。本次无需数据库迁移或接口重新发布，Worker 仍为 `556f94a1-636f-42a9-bbf9-30385e01c6ff`。
