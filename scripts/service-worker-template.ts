@@ -18,15 +18,18 @@ function preload(){
   warming=(async()=>{
     const cache=await caches.open(CACHE),files=[...ALLOW];let cursor=0,completed=0,failed=0;
     await report(0,files.length,'downloading');
-    async function work(){while(cursor<files.length){const path=files[cursor++];try{
+    async function work(){while(cursor<files.length){const path=files[cursor++];let timer;try{
       let resource=await cache.match(path);
       if(!resource&&path.startsWith(BASE+'assets/'))resource=await caches.match(path);
-      if(!resource){const response=await fetch(path);if(!response.ok||response.type==='opaque')throw new Error();resource=response;}
+      if(!resource){const controller=new AbortController();timer=setTimeout(()=>controller.abort(),30000);const response=await fetch(path,{signal:controller.signal});if(!response.ok||response.type==='opaque')throw new Error();resource=response;}
       if(!await cache.match(path))await cache.put(path,resource.clone());
       completed++;
-    }catch{failed++;}await report(completed,files.length,'downloading');}}
+    }catch{failed++;}finally{clearTimeout(timer);}await report(completed,files.length,'downloading');}}
     await Promise.all([work(),work()]);
     await report(completed,files.length,failed?'partial':'ready');
+    // Keep earlier immutable assets until the new cache has copied every file.
+    // Partial preloads can retry without downloading the same fonts again.
+    if(!failed){const keys=await caches.keys();await Promise.all(keys.slice(0,keys.indexOf(CACHE)).filter(key=>key.startsWith('album-shell-')).map(key=>caches.delete(key)));}
   })().finally(()=>{warming=undefined;});return warming;
 }
 self.addEventListener('install',event=>event.waitUntil((async()=>{
@@ -39,13 +42,14 @@ self.addEventListener('install',event=>event.waitUntil((async()=>{
   if(!references.length||references.some(path=>!SHELL.includes(path)))throw new Error('Shell release mismatch');
   const cache=await caches.open(CACHE);
   await cache.addAll(SHELL.filter(path=>path!==entry).map(path=>new Request(path,{cache:'reload'})));
-  await cache.put(entry,response);await preload();
+  await cache.put(entry,response);
+  // Large fonts and optional tools warm after activation via the preload
+  // message. A slow optional download must not keep an update installing.
 })()));
 self.addEventListener('message',event=>{
   if(event.data==='activate')self.skipWaiting();
   if(event.data==='preload')event.waitUntil(preload());
 });
-self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key.startsWith('album-shell-')&&key!==CACHE).map(key=>caches.delete(key))))));
 self.addEventListener('fetch',event=>{
   const url=new URL(event.request.url);
   if(event.request.method!=='GET'||url.origin!==self.location.origin||url.search||event.request.headers.has('authorization'))return;
@@ -54,7 +58,7 @@ self.addEventListener('fetch',event=>{
   }
   if(!ALLOW.has(url.pathname))return;
   event.respondWith(caches.open(CACHE).then(async cache=>{
-    const existing=await cache.match(event.request);if(existing)return existing;
+    const existing=await cache.match(event.request)||(url.pathname.startsWith(BASE+'assets/')?await caches.match(event.request):undefined);if(existing)return existing;
     const response=await fetch(event.request);if(response.ok&&response.type!=='opaque')await cache.put(event.request,response.clone());return response;
   }));
 });

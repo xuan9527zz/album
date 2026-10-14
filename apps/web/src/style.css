@@ -1458,11 +1458,13 @@ progress::-moz-progress-bar {
   transform: translateX(-50%);
   background: #355f4d;
   color: white;
-  z-index: 100;
+  z-index: 1000;
   padding: 15px 24px;
   border-radius: 30px;
   box-shadow: 0 3px 16px #0002;
-  white-space: nowrap;
+  max-width: calc(100vw - 24px);
+  white-space: normal;
+  text-align: center;
   font-size: 13px;
 }
 @media (min-width: 1550px) {
