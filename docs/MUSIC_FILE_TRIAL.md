@@ -1,6 +1,6 @@
 # MP3 文件配乐试验
 
-当前包含本机原型和公开在线试播页。在线页使用合成插画及用户指定上传的一个 MP3，不读取家庭照片；正式影集的音乐配置格式及数据库没有变更。用户反馈真实 iPhone 必须手动切到兼容模式才能播放；新版将 iPhone/iPad 默认设为该原生音频路径，新版自动选择的设备端结果仍待复测。
+当前包含本机原型和公开在线试播页。在线页使用合成插画及用户指定上传的一个 MP3，不读取家庭照片；正式影集的音乐配置格式及数据库没有变更。用户反馈旧版真实 iPhone 必须手动切到兼容模式才能播放；新版将 iPhone/iPad 默认设为原生音频路径，用户已更新并确认“能直接播放”，无需手动切换。
 
 2026-10-15 本机原型：用户样本 9,970,460 bytes、320 kb/s、约 4:09。在桌面内置浏览器显示实际 45%（约 4.5 / 10.0 MB）后达到 100%，点击播放并翻到第二页，时间继续至 0:16。该阶段没有上传原件，专项检查 7 项通过、2 项因 Windows WebKit 的 Blob 音频限制跳过。
 
@@ -40,3 +40,5 @@ ffmpeg -f lavfi -i sine=frequency=330:duration=8 -af volume=0.05 -codec:a libmp3
 线上验证：2026-10-15 [Pages #27](https://github.com/xuan9527zz/album/actions/runs/38609640817) 从 `650cfea` 发布成功。公开 MP3 返回 200、`audio/mp3`、9,970,460 bytes，SHA256 与原件相同；范围请求返回 206 及正确的 1,024 bytes。当前桌面网络整文件读取约 1.1 秒，不代表手机或其他网络耗时。正式试播页已实际点击 PWA 更新、达到 100%、点击播放并切至第二页，时间继续至 0:06；测试结束后暂停。截图保存在本机 `.local/hosted-mp3-production.jpg`，不提交到 Git。真实 iPhone 仍待用户复测。
 
 [Checks #48](https://github.com/xuan9527zz/album/actions/runs/38609605821) 完整通过：49 项数据库/API、51 项 Chrome/手机 Chrome/Linux WebKit 浏览器，以及 PWA 预存、更新和恢复；Linux WebKit 的 Blob 播放测试通过，没有跳过。
+
+自动原生播放最终发布：[Pages #29](https://github.com/xuan9527zz/album/actions/runs/38614031132) 从 `75f3fdc` 发布成功，[Checks #51](https://github.com/xuan9527zz/album/actions/runs/38613942429) 的 49 项数据库/API、63 项浏览器及 PWA 全流程全部通过。用户打开 `?refresh=ios-music-20261015-r2#/music-trial` 后，明确确认真实 iPhone 可以直接点播放发声，不再手动切换兼容模式；没有收集具体 iOS 版本、网络类型或加载耗时。

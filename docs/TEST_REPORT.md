@@ -1,5 +1,7 @@
 # 测试报告（2026-10-15）
 
+iPhone 配乐修复最终交付：[Pages #29](https://github.com/xuan9527zz/album/actions/runs/38614031132) 从 `75f3fdc` 发布成功，[Checks #51](https://github.com/xuan9527zz/album/actions/runs/38613942429) 的 49/49 数据库/API、63/63 浏览器及 PWA 检查通过。用户打开新版试播入口并确认真实 iPhone “能直接播放”，无需再手动切换兼容模式。这验证了真机直接点击播放；没有收集网络耗时或其他设备数据。
+
 iPhone 配乐自动选择：用户实测旧试播页需手动选择兼容模式。新版 iPhone/iPad 默认直接用原生 HTTP 音频，不先重复 fetch；准备期间可点击播放，缓冲时可暂停，不将原生部分缓冲显示为整文件 100%。其他设备 Blob 解码失败/准备超时自动切换，原生错误保留重试和静音观看。本地最终专项 22 项通过，2 项 Windows WebKit 原有 Blob 限制跳过；iPhone/iPad 标识模拟、触屏桌面 UA、准备未完成时点击/暂停、实际播放与翻页保留、关闭/重新开启、无效音频及持续 503 恢复后同一 URL 重试均通过。Chrome/WebKit PWA 与类型/构建检查通过；原生媒体测试使用开发服务器返回错误，避免 Windows WebKit 绕过 Playwright 路由导致无效测试。初版由 [Pages #28](https://github.com/xuan9527zz/album/actions/runs/38612411124) 从 `3abc2bc` 发布，正式桌面 PWA 实际更新及翻页持续播放到 0:32 已核对；真实 iPhone 自动选择结果仍待用户复测。
 
 [Checks #50](https://github.com/xuan9527zz/album/actions/runs/38612368480) 中 58 个浏览器测试通过，2 个 Linux WebKit 测试仅因为将原生请求归类为 other、而断言要求 media 失败；实际音频时间前进与 UI 断言已通过。检查改为核对无额外 fetch 和实际播放，不依赖请求分类，同时按真正能拦截到的媒体请求验证等待/暂停；没有跳过这两项设备路径验证。
