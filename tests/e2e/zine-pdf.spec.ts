@@ -6,10 +6,6 @@ test("exports all twelve fixed layouts with Chinese fonts and custom paper colou
   page,
   request,
 }, testInfo) => {
-  test.skip(
-    testInfo.project.name !== "desktop-chrome",
-    "PDF layout inspection uses the desktop export renderer",
-  );
   test.setTimeout(90000);
   const api = "http://127.0.0.1:8788",
     headers = {
@@ -20,7 +16,9 @@ test("exports all twelve fixed layouts with Chinese fonts and custom paper colou
   ).json();
   // Resume tests deliberately leave an original without a preview. PDF samples
   // must select assets suitable for rendering, regardless of test order.
-  const readyPhotos = photos.filter((photo: {assets:{role:string}[]}) => photo.assets.some(asset => asset.role === "preview"));
+  const readyPhotos = photos.filter((photo: { assets: { role: string }[] }) =>
+    photo.assets.some((asset) => asset.role === "preview"),
+  );
   expect(readyPhotos.length).toBeGreaterThanOrEqual(3);
   await page.goto("/");
   await page.getByRole("button", { name: "我的示例相册" }).click();
@@ -68,7 +66,11 @@ test("exports all twelve fixed layouts with Chinese fonts and custom paper colou
         Array.from(new Uint8Array(await (await fetch(url!)).arrayBuffer())),
       await link.getAttribute("href"),
     );
-    await writeFile(`.local/zine-pdf-${collection.id}.pdf`, Buffer.from(bytes));
+    expect(Buffer.from(bytes).subarray(0, 5).toString()).toBe("%PDF-");
+    await writeFile(
+      `.local/zine-pdf-${collection.id}-${testInfo.project.name}.pdf`,
+      Buffer.from(bytes),
+    );
     await request.delete(`${api}/v1/stories/${story.id}`, { headers });
   }
 });

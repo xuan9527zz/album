@@ -5,6 +5,7 @@ import {
 } from "../../../packages/zine/src/model";
 import { contrastInk } from "../../../packages/zine/src/color";
 import { zineFontFamilies } from "../../../packages/zine/src/ZineFonts";
+import { pdfTask } from "./pdf-task";
 import type {
   ZineConfig,
   ZineNode,
@@ -18,12 +19,38 @@ type PDFStory = {
   zine_config: ZineConfig;
   photos: ZinePhoto[];
 };
-function image(source: string) {
+function image(source: string, signal?: AbortSignal) {
   return new Promise<HTMLImageElement>((resolve, reject) => {
     const img = new Image();
+    const clear = () => {
+      img.onload = img.onerror = null;
+      signal?.removeEventListener("abort", abort);
+      window.clearTimeout(timer);
+    };
+    const abort = () => {
+      clear();
+      img.src = "";
+      reject(new DOMException("已取消制作 PDF", "AbortError"));
+    };
+    const timer = window.setTimeout(() => {
+      clear();
+      img.src = "";
+      reject(new Error("照片加载超时，请检查网络后重试导出"));
+    }, 30000);
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) {
+      abort();
+      return;
+    }
     img.crossOrigin = "anonymous";
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("有照片未能加载，请联网后重试导出"));
+    img.onload = () => {
+      clear();
+      resolve(img);
+    };
+    img.onerror = () => {
+      clear();
+      reject(new Error("有照片未能加载，请联网后重试导出"));
+    };
     img.src = source;
   });
 }
@@ -46,6 +73,7 @@ function drawText(
   node: ZineNode,
   text: string,
   ink: string,
+  fontFamily: (node: ZineNode) => string,
 ) {
   if (
     node.vertical &&
@@ -60,11 +88,12 @@ function drawText(
       { ...node, x: 0, y: 0, w: node.h, h: node.w, vertical: false },
       text,
       ink,
+      fontFamily,
     );
     ctx.restore();
     return;
   }
-  const family = `${zineFontFamilies[node.font || "Inter"]},${node.font === "Inter" ? "ZineHanSans,sans-serif" : "ZineHanSerif,serif"}`;
+  const family = fontFamily(node);
   const setFont = (size: number) => {
     ctx.font = `${node.italic ? "italic " : ""}${node.weight || 400} ${size}px ${family}`;
   };
@@ -140,8 +169,19 @@ export async function createZinePDF(
   story: PDFStory,
   getSource: (photo: ZinePhoto) => Promise<string>,
   progress: (page: number, total: number) => void,
+  options: {
+    signal?: AbortSignal;
+    stage?: (message: string) => void;
+    warning?: (message: string) => void;
+  } = {},
 ) {
-  const { jsPDF } = await import("jspdf");
+  const { signal } = options;
+  options.stage?.("正在载入 PDF 工具…");
+  const { jsPDF } = await pdfTask(
+    () => import("jspdf"),
+    signal,
+    "PDF 工具加载超时，请联网后重试",
+  );
   const pdf = new jsPDF({
     orientation: "landscape",
     unit: "px",
@@ -156,13 +196,18 @@ export async function createZinePDF(
   const ink = story.zine_config.background_color
     ? contrastInk(background)
     : collection.ink;
-  const canvas = document.createElement("canvas");
-  canvas.width = 1440;
-  canvas.height = 960;
-  const ctx = canvas.getContext("2d")!;
+  options.stage?.("正在准备影集字体…");
+  const fonts = new Map<string, Set<string>>();
+  const descriptor = (node: ZineNode) =>
+    `${node.italic ? "italic " : ""}${node.weight || 400} 16px ${zineFontFamilies[node.font || "Inter"]}`;
+  const requireFont = (font: string, text: string) => {
+    const chars = fonts.get(font) || new Set<string>();
+    for (const ch of text) chars.add(ch);
+    fonts.set(font, chars);
+  };
   for (const [index, page] of story.zine_config.pages.entries()) {
-    progress(index + 1, story.zine_config.pages.length);
-    const layout = getZineLayout(page.layout)!;
+    const layout = getZineLayout(page.layout);
+    if (!layout) throw new Error("影集版式不可用，请重新选择模板后保存");
     for (const node of layout.nodes)
       if (node.type === "text" && node.binding) {
         const text = resolveZineText(
@@ -172,75 +217,153 @@ export async function createZinePDF(
           story.title,
           index,
         );
-        if (text)
-          await document.fonts.load(
-            `${node.italic ? "italic " : ""}${node.weight || 400} ${node.size || 16}px ${zineFontFamilies[node.font || "Inter"]}`,
-            text,
-          );
+        if (!text) continue;
+        requireFont(descriptor(node), text);
         if (/[\u2e80-\u9fff]/.test(text))
-          await document.fonts.load(
-            `400 ${node.size || 16}px ${node.font === "Inter" ? "ZineHanSans" : "ZineHanSerif"}`,
+          requireFont(
+            `400 16px ${node.font === "Inter" ? "ZineHanSans" : "ZineHanSerif"}`,
             text,
           );
       }
-    ctx.fillStyle = background;
-    ctx.fillRect(0, 0, 1440, 960);
-    for (const raw of layout.nodes) {
-      const node = {
-        ...raw,
-        color:
-          raw.color?.toLowerCase() === collection.ink.toLowerCase()
-            ? ink
-            : raw.color,
-      };
-      ctx.save();
-      ctx.globalAlpha = node.opacity ?? 1;
-      if (node.type === "block") {
-        ctx.fillStyle =
-          node.color?.toLowerCase() === collection.paper.toLowerCase()
-            ? background
-            : node.color || ink;
-        ctx.fillRect(node.x, node.y, node.w, node.h);
-      } else if (node.type === "text" && node.binding)
-        drawText(
-          ctx,
-          node,
-          resolveZineText(node.binding, page, lookup, story.title, index),
-          ink,
-        );
-      else if (node.type === "photo") {
-        const photo = lookup.get(page.photo_ids[node.slot || 0] || "");
-        if (photo) {
-          const img = await image(await getSource(photo));
-          const scale = Math.max(
-            node.w / img.naturalWidth,
-            node.h / img.naturalHeight,
-          );
-          const position = (node.position || "50% 50%")
-            .split(" ")
-            .map((part) => parseFloat(part) / 100);
-          ctx.beginPath();
-          ctx.rect(node.x, node.y, node.w, node.h);
-          ctx.clip();
-          ctx.drawImage(
-            img,
-            node.x - (img.naturalWidth * scale - node.w) * (position[0] || 0.5),
-            node.y -
-              (img.naturalHeight * scale - node.h) * (position[1] || 0.5),
-            img.naturalWidth * scale,
-            img.naturalHeight * scale,
-          );
-        } else {
-          ctx.fillStyle = "#e1e5dd";
-          ctx.fillRect(node.x, node.y, node.w, node.h);
-        }
-      }
-      ctx.restore();
-    }
-    if (index) pdf.addPage([1440, 960], "landscape");
-    pdf.addImage(canvas.toDataURL("image/jpeg", 0.92), "JPEG", 0, 0, 1440, 960);
-    await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
   }
-  canvas.width = canvas.height = 0;
-  return pdf.output("blob");
+  const loadedFonts = new Set<string>();
+  await Promise.all(
+    [...fonts].map(async ([font, chars]) => {
+      try {
+        const faces = await pdfTask(
+          () => document.fonts.load(font, [...chars].join("")),
+          signal,
+          "字体加载超时",
+          12000,
+        );
+        if (faces.length) loadedFonts.add(font);
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        // Font requests cannot be cancelled. Use a fixed fallback for this PDF
+        // so a late font response cannot change its layout midway through export.
+      }
+    }),
+  );
+  if (loadedFonts.size < fonts.size)
+    options.warning?.(
+      "部分影集字体未能载入，本次 PDF 使用系统字体。可联网后重新制作以保留模板字体。",
+    );
+  const fontFamily = (node: ZineNode) => {
+    const sans = node.font === "Inter" || node.font === "HanSans";
+    const fallback = sans ? "ZineHanSans" : "ZineHanSerif";
+    return [
+      loadedFonts.has(descriptor(node))
+        ? zineFontFamilies[node.font || "Inter"]
+        : "",
+      loadedFonts.has(`400 16px ${fallback}`) ? fallback : "",
+      sans ? "sans-serif" : "serif",
+    ]
+      .filter(Boolean)
+      .join(",");
+  };
+  const canvas = document.createElement("canvas");
+  canvas.width = 1440;
+  canvas.height = 960;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("当前设备无法创建 PDF 画布，请关闭其他页面后重试");
+  try {
+    for (const [index, page] of story.zine_config.pages.entries()) {
+      if (signal?.aborted)
+        throw new DOMException("已取消制作 PDF", "AbortError");
+      progress(index + 1, story.zine_config.pages.length);
+      const layout = getZineLayout(page.layout)!;
+      ctx.fillStyle = background;
+      ctx.fillRect(0, 0, 1440, 960);
+      for (const raw of layout.nodes) {
+        const node = {
+          ...raw,
+          color:
+            raw.color?.toLowerCase() === collection.ink.toLowerCase()
+              ? ink
+              : raw.color,
+        };
+        ctx.save();
+        ctx.globalAlpha = node.opacity ?? 1;
+        if (node.type === "block") {
+          ctx.fillStyle =
+            node.color?.toLowerCase() === collection.paper.toLowerCase()
+              ? background
+              : node.color || ink;
+          ctx.fillRect(node.x, node.y, node.w, node.h);
+        } else if (node.type === "text" && node.binding)
+          drawText(
+            ctx,
+            node,
+            resolveZineText(node.binding, page, lookup, story.title, index),
+            ink,
+            fontFamily,
+          );
+        else if (node.type === "photo") {
+          const photo = lookup.get(page.photo_ids[node.slot || 0] || "");
+          if (photo) {
+            const source = await pdfTask(
+              () => getSource(photo),
+              signal,
+              `第 ${index + 1} 页照片下载超时，请检查网络后重试`,
+            );
+            const img = await image(source, signal);
+            const scale = Math.max(
+              node.w / img.naturalWidth,
+              node.h / img.naturalHeight,
+            );
+            const position = (node.position || "50% 50%")
+              .split(" ")
+              .map((part) => parseFloat(part) / 100);
+            ctx.beginPath();
+            ctx.rect(node.x, node.y, node.w, node.h);
+            ctx.clip();
+            ctx.drawImage(
+              img,
+              node.x -
+                (img.naturalWidth * scale - node.w) * (position[0] || 0.5),
+              node.y -
+                (img.naturalHeight * scale - node.h) * (position[1] || 0.5),
+              img.naturalWidth * scale,
+              img.naturalHeight * scale,
+            );
+            img.src = "";
+          } else {
+            ctx.fillStyle = "#e1e5dd";
+            ctx.fillRect(node.x, node.y, node.w, node.h);
+          }
+        }
+        ctx.restore();
+      }
+      if (index) pdf.addPage([1440, 960], "landscape");
+      const jpeg = await pdfTask(
+        () =>
+          new Promise<Blob>((resolve, reject) =>
+            canvas.toBlob(
+              (blob) =>
+                blob
+                  ? resolve(blob)
+                  : reject(new Error("PDF 页面生成失败，请关闭其他页面后重试")),
+              "image/jpeg",
+              0.92,
+            ),
+          ),
+        signal,
+        "PDF 页面生成超时，请重试",
+      );
+      pdf.addImage(
+        new Uint8Array(await jpeg.arrayBuffer()),
+        "JPEG",
+        0,
+        0,
+        1440,
+        960,
+      );
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+    }
+    if (signal?.aborted)
+      throw new DOMException("已取消制作 PDF", "AbortError");
+    return pdf.output("blob");
+  } finally {
+    canvas.width = canvas.height = 0;
+  }
 }

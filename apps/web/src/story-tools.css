@@ -387,10 +387,33 @@
   font-size: 12px;
 }
 .story-export-dialog .story-export-progress {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   background: #e6efdc;
   padding: 12px 15px;
   border-radius: 10px;
   color: #315b44;
+}
+.story-export-progress p {
+  margin: 0;
+  color: inherit;
+}
+.story-export-progress button {
+  flex-shrink: 0;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid #b6c7ab;
+  border-radius: 8px;
+  background: #f7faf2;
+  color: #315b44;
+  font-size: 12px;
+}
+.story-export-notice {
+  padding: 12px 15px;
+  border-radius: 10px;
+  background: #edf1e7;
 }
 .story-export-dialog .story-error {
   color: #a14d39;

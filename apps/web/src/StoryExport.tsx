@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { Copy, Download, ExternalLink, FileText, Link2, X } from "lucide-react";
 import type { Photo } from "../../../packages/shared/src";
 import type { ZineConfig, ZineTemplate } from "../../../packages/zine/src";
-import { Client, localDemo } from "./client";
-import { cachedImage, imageInSession } from "./session-image-cache";
+import { Client } from "./client";
+import { cachedImage } from "./session-image-cache";
+import { pdfTask } from "./pdf-task";
 
 export function StoryExport({
   story,
@@ -25,7 +26,10 @@ export function StoryExport({
   const [pdfURL, setPDFURL] = useState(""),
     [error, setError] = useState(""),
     [copied, setCopied] = useState(false);
+  const [notice, setNotice] = useState("");
+  const pdfController = useRef<AbortController | null>(null);
   const linkField = useRef<HTMLInputElement>(null);
+  useEffect(() => () => pdfController.current?.abort(), []);
   useEffect(() => {
     if (!open) return;
     void client
@@ -77,16 +81,41 @@ export function StoryExport({
     }
   }
   async function exportPDF() {
+    const controller = new AbortController();
+    pdfController.current = controller;
+    const abort = () => controller.abort();
+    client.controller.signal.addEventListener("abort", abort, { once: true });
+    if (client.controller.signal.aborted) controller.abort();
+    const prepared = new Map<string, { url: string; bytes: number }>();
+    let preparedBytes = 0;
+    const ownedURLs: string[] = [];
+    let fontWarning = "";
     setBusy("正在准备照片和字体…");
     setError("");
+    setNotice("");
     try {
-      const current = await client.request<
-        typeof story & { urls: { id: string; url: string }[] }
-      >(`/v1/stories/${story.id}`);
+      const current = await pdfTask(
+        () =>
+          client.request<
+            typeof story & { urls: { id: string; url: string }[] }
+          >(
+            `/v1/stories/${story.id}`,
+            undefined,
+            "GET",
+            undefined,
+            controller.signal,
+          ),
+        controller.signal,
+        "影集资料加载超时，请检查网络后重试",
+      );
       const urls = Object.fromEntries(
         current.urls.map((item) => [item.id, item.url]),
       );
-      const { createZinePDF } = await import("./zine-pdf");
+      const { createZinePDF } = await pdfTask(
+        () => import("./zine-pdf"),
+        controller.signal,
+        "PDF 工具加载超时，请联网后重试",
+      );
       const blob = await createZinePDF(
         {
           ...current,
@@ -98,21 +127,72 @@ export function StoryExport({
           const asset =
             original.assets.find((a) => a.role === "preview") ||
             original.assets.find((a) => a.role === "thumbnail");
-          if (!asset || !urls[asset.id])
-            throw new Error("有照片尚无预览图，请先生成预览后导出");
-          return (
-            cachedImage(asset.id) ||
-            (localDemo
-              ? urls[asset.id]
-              : await imageInSession(asset.id, urls[asset.id]))
-          );
+          if (!asset) throw new Error("有照片尚无预览图，请先生成预览后导出");
+          const existing = prepared.get(asset.id)?.url || cachedImage(asset.id);
+          if (existing) return existing;
+          let source = urls[asset.id];
+          if (!source) {
+            const fresh = await client.request<{
+              urls: { id: string; url: string }[];
+            }>(
+              "/v1/assets/read-urls",
+              { ids: [asset.id] },
+              "POST",
+              undefined,
+              controller.signal,
+            );
+            source = fresh.urls.find((item) => item.id === asset.id)?.url || "";
+          }
+          if (!source) throw new Error("照片读取链接不可用，请重试导出");
+          // PDF owns these requests and URLs. Cancellation must not abort a
+          // shared gallery request, or leave PDF waiting on its pending cache.
+          const response = await fetch(source, {
+            signal: controller.signal,
+            cache: "no-store",
+            referrerPolicy: "no-referrer",
+          });
+          if (!response.ok)
+            throw new Error("照片下载失败，请检查网络后重试导出");
+          const image = await response.blob();
+          if (controller.signal.aborted)
+            throw new DOMException("已取消制作 PDF", "AbortError");
+          // Keep at most 8 MiB of additional PDF photos, or one larger image.
+          // Pages are rendered sequentially, so old decoded sources are idle.
+          while (
+            prepared.size &&
+            preparedBytes + image.size > 8 * 1024 * 1024
+          ) {
+            const [id, old] = prepared.entries().next().value!;
+            URL.revokeObjectURL(old.url);
+            prepared.delete(id);
+            preparedBytes -= old.bytes;
+          }
+          const url = URL.createObjectURL(image);
+          prepared.set(asset.id, { url, bytes: image.size });
+          preparedBytes += image.size;
+          ownedURLs.push(url);
+          return url;
         },
         (page, total) => setBusy(`正在制作 PDF · ${page}/${total} 页`),
+        {
+          signal: controller.signal,
+          stage: setBusy,
+          warning: (message) => {
+            fontWarning = message;
+          },
+        },
       );
       setPDFURL(URL.createObjectURL(blob));
+      setNotice(fontWarning);
     } catch (e) {
-      setError((e as Error).message || "PDF 导出失败，请重试");
+      if (e instanceof Error && e.name === "AbortError")
+        setNotice("已取消制作 PDF，可以重新制作。");
+      else setError((e as Error).message || "PDF 导出失败，请重试");
     } finally {
+      controller.abort();
+      client.controller.signal.removeEventListener("abort", abort);
+      for (const url of ownedURLs) URL.revokeObjectURL(url);
+      if (pdfController.current === controller) pdfController.current = null;
       setBusy("");
     }
   }
@@ -247,8 +327,21 @@ export function StoryExport({
               </div>
             </section>
             {busy && (
-              <p className="story-export-progress" role="status">
-                {busy}
+              <div className="story-export-progress">
+                <p role="status">{busy}</p>
+                {pdfController.current && (
+                  <button
+                    type="button"
+                    onClick={() => pdfController.current?.abort()}
+                  >
+                    取消制作
+                  </button>
+                )}
+              </div>
+            )}
+            {notice && (
+              <p className="story-export-notice" role="status">
+                {notice}
               </p>
             )}
             {error && (

@@ -67,6 +67,7 @@ export class Client {
     body?: unknown,
     method = body ? "POST" : "GET",
     key?: string,
+    signal?: AbortSignal,
   ): Promise<T> {
     const r = await fetch(
       `${localDemo ? "http://127.0.0.1:8788" : config.VITE_API_BASE_URL.replace(/\/$/, "")}${path}`,
@@ -78,7 +79,7 @@ export class Client {
           ...(key ? { "Idempotency-Key": key } : {}),
         },
         body: body ? JSON.stringify(body) : undefined,
-        signal: this.controller.signal,
+        signal: signal || this.controller.signal,
         cache: "no-store",
       },
     );
