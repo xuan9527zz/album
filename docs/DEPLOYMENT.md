@@ -34,6 +34,8 @@ Worker 的 `/health` 返回 200，匿名 `/v1/photos` 返回 401；网关相同�
 
 2026-10-15 更新流程补充：关键 shell 安装完成即可提示切换，大字体和 PDF/HEIC 等工具通过激活后的后台预装继续保存；30 秒超时不会阻止更新。已有字体可跨版本复用，新资源完整准备前保留旧缓存。更新提示高于导出弹窗，回到前台会检查新版，切换以 Worker 实际激活为准。若设备仍显示没有“取消制作”的旧 PDF 窗口，可完全关闭旧相册后在 Safari 打开带 `?refresh=pdf-20261015` 的站点入口再更新。该参数用于绕过旧的入口缓存，不清空家庭数据；真实 iPhone 的新版制作结果仍待确认。
 
+该修复已从 `dcdab82` 通过 [Pages #25](https://github.com/xuan9527zz/album/actions/runs/38594797583) 成功发布，[Checks #43](https://github.com/xuan9527zz/album/actions/runs/38594738765) 完整通过。正式 Worker 缓存 `album-shell-f36538d64c268f`，入口脚本 `index-DeMNPzfk.js`；桌面正式相册更新及实际 3 页 PDF 下载核对完成。本次无需数据库迁移或接口重新发布，Worker 仍为 `556f94a1-636f-42a9-bbf9-30385e01c6ff`。
+
 2026-10-14 PDF 卡住修复已由 [Pages #22](https://github.com/xuan9527zz/album/actions/runs/38554282464) 从 `c38f593` 发布。正式 PWA 通过“新版本已准备好 · 点击刷新”启用后，导出窗口出现“取消制作”，正式影集生成并下载为有效的 3 页 PDF；没有生成公开观看链接或改动照片/影集记录。导出专用请求支持取消/超时，字体超时以系统字体继续，图片和画布临时内存会释放；另修复导出窗口继承工具栏不换行造成的横向滚动。三浏览器 12 项 PDF 故障恢复及全部模板检查通过，真实 iPhone PWA 的制作和保存仍需用户复测。
 
 仓库 `xuan9527zz/album` 只放代码和合成测试素材。Settings → Pages 已选择 **GitHub Actions**；仓库 Variables 已设置 `VITE_SUPABASE_URL`、`VITE_SUPABASE_PUBLISHABLE_KEY`、`VITE_API_BASE_URL`。[Deploy Pages #15](https://github.com/xuan9527zz/album/actions/runs/38397051157) 从提交 `3fe92f3` 构建最终网站；正式站点为 `https://xuan9527zz.github.io/album/`。后续前端代码更新后仍需手动触发此工作流发布。
