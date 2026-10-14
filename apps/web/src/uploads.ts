@@ -105,6 +105,7 @@ export async function uploadPhoto(
   shared: boolean,
   details: { title: string; date: string; place: string },
   progress: (text: string, n: number) => void,
+  allocated?: (session: UploadSession) => void,
 ) {
   progress("读取拍摄信息与校验原件", 0);
   const meta = await metadata(file);
@@ -135,6 +136,7 @@ export async function uploadPhoto(
     grants: Grant[];
   }>("/v1/uploads/init", { assets, metadata: meta }, "POST", key);
   remember(client, result.session.id);
+  allocated?.(result.session);
   await transfer(
     client,
     result.session,
@@ -224,9 +226,9 @@ export async function resume(
   for (const item of session.items.filter((i) => i.state === "pending")) {
     const file = files.find(
       (f) =>
-        f.name === item.original_filename && f.size === Number(item.size_bytes),
+        (f.name === (item.source_filename || item.original_filename) || f.name === item.original_filename) && f.size === Number(item.size_bytes),
     );
-    if (!file) throw new Error(`请重新选择 ${item.original_filename}`);
+    if (!file) throw new Error(`请重新选择 ${item.source_filename || item.original_filename}`);
     const spec = await specification(
       file,
       item.role,

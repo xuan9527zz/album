@@ -81,6 +81,7 @@ export async function localDatabase(): Promise<{ sql: PGlite; db: DB }> {
       "utf8",
     ),
   );
+  await sql.exec(await readFile(new URL("../supabase/migrations/202610140004_photo_filenames.sql", import.meta.url), "utf8"));
   for (const [index, user] of demoUsers.entries()) {
     await sql.query("insert into auth.users values($1)", [user]);
     await sql.query(
@@ -101,6 +102,7 @@ export async function localDatabase(): Promise<{ sql: PGlite; db: DB }> {
           "album_v7_action",
           "album_v8_action",
           "album_story_public",
+          "album_named_upload",
           "album_maintenance",
           "album_v3_maintenance",
         ].includes(name)

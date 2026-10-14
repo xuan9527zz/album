@@ -708,17 +708,24 @@ progress::-moz-progress-bar {
 .upload-preview-fallback { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 6px; color: #829489; text-align: center; padding: 12px; }
 .upload-preview-fallback span { font-size: 10px; }
 .upload-preview-meta { grid-area: meta; display: flex; justify-content: space-between; gap: 12px; align-items: baseline; min-width: 0; width: 100%; }
-.upload-preview-meta strong { min-width: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upload-preview-meta strong { display: block; min-width: 0; max-width: 100%; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; white-space: normal; }
 .upload-preview-meta small { flex-shrink: 0; font-size: 11px; white-space: nowrap; }
 .upload-preview-fields { grid-area: fields; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px 12px; min-width: 0; width: 100%; }
 .upload-preview-fields label { min-width: 0; margin: 0; color: #627669; font-size: 12px; }
 .upload-preview-fields label:first-of-type { grid-column: 1 / -1; }
 .upload-preview-fields input { display: block; min-width: 0; width: 100%; min-height: 40px; padding: 8px 10px; margin-top: 5px; }
+.upload-date-control { display: block; width: 100%; min-width: 0; max-width: 100%; margin-top: 5px; border: 1px solid var(--line); border-radius: 8px; background: #fffdf8; overflow: hidden; }
+.upload-date-control input { appearance: none; -webkit-appearance: none; width: 100%; max-width: 100%; min-width: 0; margin: 0; border: 0; border-radius: 0; background: transparent; text-align: left; }
+.upload-date-control input::-webkit-date-and-time-value { min-width: 0; text-align: left; }
+.upload-date-control input::-webkit-datetime-edit { min-width: 0; padding: 0; }
+.upload-date-control:focus-within { outline: 2px solid #9ab7a7; outline-offset: 1px; }
 @media (max-width: 800px) {
   .message-grid { grid-template-columns: 1fr; }
   .selected-files > .upload-preview-card { grid-template-columns: 72px minmax(0,1fr); grid-template-areas: "image meta" "fields fields"; gap: 10px 12px; padding: 12px; }
   .upload-preview-card > img, .upload-preview-fallback { width: 72px; height: 72px; }
-  .upload-preview-meta { flex-direction: column; align-items: flex-start; justify-content: center; gap: 4px; height: 72px; }
+  .upload-preview-meta { flex-direction: column; align-items: flex-start; justify-content: center; gap: 4px; min-height: 72px; }
+  .upload-preview-meta strong { font-size: 12px; }
+  .upload-preview-meta small { margin-left: 0; }
   .upload-preview-fields { grid-template-columns: 1fr; }
   .upload-preview-fields label:first-of-type { grid-column: auto; }
 }

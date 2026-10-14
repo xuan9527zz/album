@@ -34,8 +34,9 @@ import {
 } from "../../../packages/shared/src/index";
 import { auth, Client, configured, inviteMarker, localDemo } from "./client";
 import { cachedImage, clearImageCache, imageInSession } from "./session-image-cache";
-import { metadata as readPhotoMetadata } from "./files";
+import { fileMime, metadata as readPhotoMetadata } from "./files";
 import { usePwaCacheStatus } from "./pwa-cache-status";
+import { photoFilename } from "../../../packages/shared/src/photo-filename";
 import {
   addDerivatives,
   addLiveVideo,
@@ -565,7 +566,7 @@ function Album({
           )}
           {tab === "messages" && <MessagesPage client={client} userID={userID} onRead={() => setUnread(0)} />}
           <div hidden={tab !== "upload"}>
-            <Upload client={client} onChange={refresh} />
+            <Upload client={client} displayName={me.display_name} onChange={refresh} />
           </div>
           {tab === "me" && <MyPage me={me} client={client} onChange={refresh} logout={exit} />}
         </main>
@@ -1902,9 +1903,11 @@ interface Job {
 }
 function Upload({
   client,
+  displayName,
   onChange,
 }: {
   client: Client;
+  displayName: string;
   onChange: () => void;
 }) {
   const [files, setFiles] = useState<File[]>([]);
@@ -1931,6 +1934,7 @@ function Upload({
   );
   const pictures = files.filter((f) => !/\.(mov|mp4)$/i.test(f.name));
   const videos = files.filter((f) => /\.(mov|mp4)$/i.test(f.name));
+  const pendingName = (file: File, index: number) => photoFilename(displayName, `待保存${String(index + 1).padStart(2, "0")}`, fileMime(file), file.name);
   useEffect(() => {
     const urls: Record<number, string> = {};
     pictures.forEach((file, index) => { urls[index] = URL.createObjectURL(file); });
@@ -1995,7 +1999,7 @@ function Upload({
       ...old,
       ...pictures.map((file) => ({
         id: crypto.randomUUID(),
-        name: file.name,
+        name: pendingName(file, pictures.indexOf(file)),
         file,
         video: videos.find((v) => pairs[v.name] === file.name),
         provenance,
@@ -2037,6 +2041,7 @@ function Upload({
         job.shared,
         job.details,
         update,
+        (session) => setJobs((old) => old.map((item) => item.id === job.id ? { ...item, name: session.items.find((asset) => asset.role === "original_image")!.original_filename } : item)),
       )
         .then(() => {
           if (!client.controller.signal.aborted) {
@@ -2163,10 +2168,10 @@ function Upload({
                 {previewURLs[i] && !previewFailed.includes(i) ?
                   <img src={previewURLs[i]} alt={`待上传预览 ${f.name}`} onError={() => setPreviewFailed((current) => [...current, i])}/> :
                   <div className="upload-preview-fallback"><Images size={25}/><span>当前格式暂不支持预览，仍可上传原件</span></div>}
-                <div className="upload-preview-meta"><strong>{f.name}</strong><small>{formatBytes(f.size)}</small></div>
+                <div className="upload-preview-meta"><strong>{pendingName(f, i)}</strong><small>{formatBytes(f.size)}</small></div>
                 <div className="upload-preview-fields">
                   <label>标题<input maxLength={80} value={drafts[i]?.title || ""} onChange={(event) => setDrafts((current) => ({ ...current, [i]: { ...(current[i] || { title: "", date: "", place: "" }), title: event.target.value } }))} placeholder="给这张照片起个名字"/></label>
-                  <label>拍摄时间<input type="datetime-local" value={drafts[i]?.date || ""} onChange={(event) => setDrafts((current) => ({ ...current, [i]: { ...(current[i] || { title: "", date: "", place: "" }), date: event.target.value } }))}/></label>
+                  <label>拍摄时间<span className="upload-date-control"><input type="datetime-local" value={drafts[i]?.date || ""} onChange={(event) => setDrafts((current) => ({ ...current, [i]: { ...(current[i] || { title: "", date: "", place: "" }), date: event.target.value } }))}/></span></label>
                   <label>地点<input maxLength={120} value={drafts[i]?.place || ""} onChange={(event) => setDrafts((current) => ({ ...current, [i]: { ...(current[i] || { title: "", date: "", place: "" }), place: event.target.value } }))}/></label>
                 </div>
               </div>

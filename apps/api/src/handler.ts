@@ -6,6 +6,7 @@ import {
 } from "../../../packages/shared/src/index";
 import { md5Hex, sniff, type ObjectStore } from "./storage";
 import { storyBodySchema } from "../../../packages/zine/src/schema";
+import { photoFilename } from "../../../packages/shared/src/photo-filename";
 export interface DB {
   call(name: string, args: Record<string, unknown>): Promise<any>;
 }
@@ -546,13 +547,15 @@ export function createHandler(d: Dependencies) {
             .enum(["original_image", "live_video"])
             .parse((await readJSON(request)).role || "original_image");
           const object = await callV3("download", { photo_id: photoID, role });
+          const photo = await callV2("photo", { photo_id: photoID });
+          const filename = photoFilename(photo.owner_name, photoID, object.mime, object.filename);
           return response({
             url: await d.store.grantGet(
               object.object_key,
               d.readTTL,
-              object.filename,
+              filename,
             ),
-            filename: object.filename,
+            filename,
             expires_in: d.readTTL,
           });
         }
@@ -603,17 +606,10 @@ export function createHandler(d: Dependencies) {
         const digest = Array.from(new Uint8Array(bytes), (n) =>
           n.toString(16).padStart(2, "0"),
         ).join("");
-        const s = await (photoMatch
-          ? callV3("supplement", {
-              ...data,
-              key,
-              digest,
-            })
-          : call("init", {
-              ...data,
-              key,
-              digest,
-            }));
+        const s = await d.db.call("album_named_upload", {
+          p_owner: owner, p_action: photoMatch ? "supplement" : "init",
+          p_data: { ...data, key, digest },
+        });
         return response(
           { session: s, grants: s.state === "open" ? await grants(s.id) : [] },
           201,

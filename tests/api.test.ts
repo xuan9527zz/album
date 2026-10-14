@@ -7,6 +7,7 @@ import { createHandler, cleanUp } from "../apps/api/src/handler";
 import { R2Store, sniff } from "../apps/api/src/storage";
 import { localEXIFDate } from "../apps/web/src/files";
 import { newZineConfig } from "../packages/zine/src/model";
+import { photoFilename } from "../packages/shared/src/photo-filename";
 let database: Awaited<ReturnType<typeof localDatabase>>,
   store: LocalStore,
   handler: ReturnType<typeof createHandler>,
@@ -249,6 +250,29 @@ describe("real SQL migration + API, simulated object transport", () => {
     expect(
       createHash("sha256").update(new Uint8Array(bytes)).digest("hex"),
     ).toBe(spec().sha256);
+  });
+  it("names saved originals by their owner and actual photo ID, preserves resume names and legacy downloads", async () => {
+    const key = crypto.randomUUID();
+    const input = { ...spec(), filename: "a8edbcff835e71f49f9b0cdf4bb175af.png" };
+    const r = await init(A, key, [input]);
+    const filename = `我的相册_${r.session.photo_id}.png`;
+    expect(r.session.items[0].original_filename).toBe(filename);
+    expect(r.session.items[0].source_filename).toBe(input.filename);
+    expect((await init(A, key, [input])).session.items[0]).toMatchObject({id:r.session.items[0].id, original_filename:filename, source_filename:input.filename});
+    const pending = await (await api(`/v1/uploads/${r.session.id}`)).json();
+    expect(pending.items[0].source_filename).toBe(input.filename);
+    expect((await api(`/v1/uploads/${r.session.id}`, undefined, "GET", B)).status).toBe(404);
+    expect((await transfer(r)).status).toBe(200);
+    const stored = (await database.sql.query<{ original_filename: string }>("select original_filename from public.photo_assets where photo_id=$1", [r.session.photo_id])).rows[0];
+    expect(stored.original_filename).toBe(filename);
+    // Old objects keep their storage names; download names use the same convention.
+    await database.sql.query("update public.photo_assets set original_filename='legacy-hashed.png' where photo_id=$1", [r.session.photo_id]);
+    await api(`/v1/photos/${r.session.photo_id}/share`, { is_shared:true });
+    const grant = await (await api(`/v1/photos/${r.session.photo_id}/original-download`, {}, "POST", B)).json();
+    expect(grant.filename).toBe(filename);
+    expect(photoFilename(' 如/\\:*?"<>|. ', r.session.photo_id, 'image/jpeg', 'source.jpeg')).toBe(`如__________${r.session.photo_id}.jpeg`);
+    const privileges = await database.sql.query<{ allowed: boolean }>("select has_function_privilege('authenticated','public.album_named_upload(uuid,text,jsonb)','execute') as allowed");
+    expect(privileges.rows[0].allowed).toBe(false);
   });
   it("complete is idempotent and quota only commits once", async () => {
     const r = await init();

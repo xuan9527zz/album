@@ -150,6 +150,7 @@ export interface UploadItem {
   original_filename: string;
   md5: string;
   sha256: string;
+  source_filename?: string | null;
 }
 export interface UploadSession {
   id: string;

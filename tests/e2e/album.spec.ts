@@ -60,7 +60,8 @@ test("login, upload, original download, edit, batch, trash, restore, and account
     page.waitForEvent("download"),
     page.getByRole("link", { name: /下载原件/ }).click(),
   ]);
-  expect(download.suggestedFilename()).toBe("landscape-0.png");
+  const photoID = new URL(page.url()).hash.match(/\/photo\/([a-f0-9-]+)/)![1];
+  expect(download.suggestedFilename()).toBe(`我的相册_${photoID}.png`);
   expect(await readFile(await download.path())).toEqual(
     await readFile(path.resolve("tests/fixtures/landscape-0.png")),
   );
@@ -305,10 +306,11 @@ test("iPhone opens a save popup with the original image and a share fallback", a
   await saveButton.click();
   await expect(popup).toBeVisible();
   await popup.getByRole("button", { name: "改用系统菜单保存" }).click();
+  const photoID = new URL(page.url()).hash.match(/\/photo\/([a-f0-9-]+)/)![1];
   await expect
     .poll(() => page.evaluate(() => (window as any).__sharedFile))
     .toEqual({
-      name: "landscape-0.png",
+      name: `我的相册_${photoID}.png`,
       type: "image/png",
       size: (await readFile(path.resolve("tests/fixtures/landscape-0.png"))).length,
     });
@@ -350,7 +352,8 @@ test("HEIC original and manually grouped MP4 remain downloadable", async ({
     page.waitForEvent("download"),
     page.getByRole("link", { name: /下载原件/ }).click(),
   ]);
-  expect(download.suggestedFilename()).toBe("synthetic.heic");
+  const photoID = new URL(page.url()).hash.match(/\/photo\/([a-f0-9-]+)/)![1];
+  expect(download.suggestedFilename()).toBe(`我的相册_${photoID}.heic`);
   expect(await readFile(await download.path())).toEqual(
     await readFile(path.resolve("tests/fixtures/synthetic.heic")),
   );
@@ -372,7 +375,7 @@ test("HEIC original and manually grouped MP4 remain downloadable", async ({
     page.waitForEvent("download"),
     page.getByRole("link", { name: /下载配套视频/ }).click(),
   ]);
-  expect(videoDownload.suggestedFilename()).toBe("synthetic.mp4");
+  expect(videoDownload.suggestedFilename()).toBe(`我的相册_${photoID}.mp4`);
   expect(await readFile(await videoDownload.path())).toEqual(
     await readFile(path.resolve("tests/fixtures/synthetic.mp4")),
   );
