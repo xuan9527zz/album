@@ -124,15 +124,9 @@ test("does not report 100 percent when fully downloaded bytes cannot be played",
   page,
   request,
 }) => {
-  await page.route("**/__music-trial/audio", (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: "audio/mpeg",
-      headers: { "content-length": "10" },
-      body: "bad music!",
-    }),
-  );
-  const id = await openTrial(page, request);
+  // Serve invalid bytes to both fetch and the platform's native media stack;
+  // Windows WebKit media requests do not pass through Playwright routing.
+  const id = await openTrial(page, request, "invalid");
   await expect(page.getByRole("alert")).toContainText("音乐文件无法播放");
   await expect(page.getByRole("status")).not.toContainText("100%");
   await page.getByRole("button", { name: "静音观看", exact: true }).click();

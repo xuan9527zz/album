@@ -58,7 +58,12 @@ function AudioSession({
   const [bytes, setBytes] = useState({ loaded: 0, total: 0 });
   const [url, setURL] = useState(""),
     [error, setError] = useState("");
-  const [direct, setDirect] = useState(false);
+  const [direct, setDirect] = useState(
+    () =>
+      /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1),
+  );
+  const [buffering, setBuffering] = useState(false);
   const [playing, setPlaying] = useState(false),
     [position, setPosition] = useState(0),
     [duration, setDuration] = useState(0);
@@ -71,29 +76,35 @@ function AudioSession({
     setError("");
     setBytes({ loaded: 0, total: 0 });
     setPlaying(false);
-    setDirect(false);
+    setBuffering(false);
     setPosition(0);
     setDuration(0);
-    void downloadAudio(
-      source,
-      controller.signal,
-      (value) => {
-        if (alive) setBytes(value);
-      },
-      expectedBytes,
-    )
-      .then((blob) => {
-        if (!alive) return;
-        owned = URL.createObjectURL(blob);
-        setURL(owned);
-        setState("decoding");
-      })
-      .catch((failure) => {
-        if (alive) {
-          setError((failure as Error).message);
-          setState("error");
-        }
-      });
+    if (direct) {
+      // iOS can require a tap before fetching/decoding media. Keep playback
+      // available while preparing instead of waiting for canplay first.
+      setURL(new URL(source, location.href).href);
+      setState("decoding");
+    } else
+      void downloadAudio(
+        source,
+        controller.signal,
+        (value) => {
+          if (alive) setBytes(value);
+        },
+        expectedBytes,
+      )
+        .then((blob) => {
+          if (!alive) return;
+          owned = URL.createObjectURL(blob);
+          setURL(owned);
+          setState("decoding");
+        })
+        .catch((failure) => {
+          if (alive) {
+            setError((failure as Error).message);
+            setState("error");
+          }
+        });
     const element = media.current;
     return () => {
       alive = false;
@@ -103,20 +114,18 @@ function AudioSession({
       element?.load();
       if (owned) URL.revokeObjectURL(owned);
     };
-  }, [source, nonce, expectedBytes]);
+  }, [source, nonce, expectedBytes, direct]);
   useEffect(() => {
-    if (state !== "decoding") return;
+    if (state !== "decoding" || direct) return;
     const timer = window.setTimeout(() => {
-      setState("error");
-      setError("音乐无法准备播放，请重试或静音观看");
+      setDirect(true);
     }, 15000);
     return () => window.clearTimeout(timer);
-  }, [state]);
-  const percent =
-    state === "ready"
-      ? direct
-        ? null
-        : 100
+  }, [state, direct]);
+  const percent = direct
+    ? null
+    : state === "ready"
+      ? 100
       : bytes.total
         ? Math.min(99, Math.floor((bytes.loaded / bytes.total) * 100))
         : null;
@@ -124,23 +133,25 @@ function AudioSession({
     `${Math.floor(value / 60)}:${String(Math.floor(value % 60)).padStart(2, "0")}`;
   async function toggle() {
     const element = media.current;
-    if (!element || state !== "ready") return;
+    if (!element || (state !== "ready" && !(direct && state === "decoding")))
+      return;
     if (!element.paused) {
       element.pause();
       return;
     }
     try {
+      if (direct && element.readyState < 3) setBuffering(true);
       await element.play();
       setError("");
-    } catch {
+    } catch (failure) {
+      setBuffering(false);
+      if ((failure as Error).name === "AbortError" && element.paused) return;
+      if (!direct && (failure as Error).name === "NotSupportedError") {
+        setDirect(true);
+        return;
+      }
       setError("请点击播放配乐；如果仍无声音，可以静音观看。");
     }
-  }
-  function playDirectly() {
-    setDirect(true);
-    setError("");
-    setState("decoding");
-    setURL(new URL(source, location.href).href);
   }
   return (
     <div className="music-host file-audio-host">
@@ -182,13 +193,17 @@ function AudioSession({
             <strong role="status">
               {state === "error"
                 ? "音乐暂时未能准备好"
-                : state === "ready"
-                  ? direct
-                    ? "在线播放已就绪"
-                    : "100% · 音乐准备完成"
-                  : state === "decoding"
-                    ? "正在准备播放…"
-                    : `音乐准备中${percent === null ? "…" : ` · ${percent}%`}`}
+                : direct && buffering
+                  ? "正在缓冲音乐…"
+                  : state === "ready"
+                    ? direct
+                      ? "在线播放已就绪"
+                      : "100% · 音乐准备完成"
+                    : state === "decoding"
+                      ? direct
+                        ? "点击播放即可开始"
+                        : "正在准备播放…"
+                      : `音乐准备中${percent === null ? "…" : ` · ${percent}%`}`}
             </strong>
             {state !== "error" && !direct && (
               <progress
@@ -197,13 +212,15 @@ function AudioSession({
                 value={percent ?? undefined}
               />
             )}
-            <small>
-              {formatBytes(bytes.loaded)}
-              {bytes.total > 0 && ` / ${formatBytes(bytes.total)}`}
-            </small>
+            {!direct && (
+              <small>
+                {formatBytes(bytes.loaded)}
+                {bytes.total > 0 && ` / ${formatBytes(bytes.total)}`}
+              </small>
+            )}
           </div>
-          {direct && <p>兼容播放模式，音乐由浏览器缓冲。</p>}
-          {state === "ready" && (
+          {direct && <p>音乐随播放缓冲，翻页不会中断。</p>}
+          {(state === "ready" || (direct && state === "decoding")) && (
             <>
               <button
                 className="file-audio-play"
@@ -213,23 +230,27 @@ function AudioSession({
                 {playing ? <Pause size={18} /> : <Play size={18} />}{" "}
                 {playing ? "暂停配乐" : "播放配乐"}
               </button>
-              <div className="file-audio-time">
-                <span>{clock(position)}</span>
-                <span>{clock(duration)}</span>
-              </div>
-              <input
-                type="range"
-                aria-label="配乐播放进度"
-                min={0}
-                max={duration || 1}
-                step={0.1}
-                value={Math.min(position, duration || 1)}
-                onChange={(event) => {
-                  if (media.current)
-                    media.current.currentTime = Number(event.target.value);
-                  setPosition(Number(event.target.value));
-                }}
-              />
+              {duration > 0 && Number.isFinite(duration) && (
+                <>
+                  <div className="file-audio-time">
+                    <span>{clock(position)}</span>
+                    <span>{clock(duration)}</span>
+                  </div>
+                  <input
+                    type="range"
+                    aria-label="配乐播放进度"
+                    min={0}
+                    max={duration || 1}
+                    step={0.1}
+                    value={Math.min(position, duration || 1)}
+                    onChange={(event) => {
+                      if (media.current)
+                        media.current.currentTime = Number(event.target.value);
+                      setPosition(Number(event.target.value));
+                    }}
+                  />
+                </>
+              )}
             </>
           )}
           {error && (
@@ -243,9 +264,6 @@ function AudioSession({
                 <RefreshCw size={14} />
                 重试音乐加载
               </button>
-            )}
-            {state === "error" && !direct && (
-              <button onClick={playDirectly}>尝试兼容播放</button>
             )}
             <button onClick={close}>静音观看</button>
           </div>
@@ -264,12 +282,29 @@ function AudioSession({
         }}
         onError={(event) => {
           if (url && event.currentTarget.currentSrc === url) {
+            if (!direct) {
+              setDirect(true);
+              return;
+            }
+            setBuffering(false);
             setState("error");
             setError("音乐文件无法播放，请重试或换一个文件");
           }
         }}
         onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
+        onPlaying={() => {
+          setBuffering(false);
+          setPlaying(true);
+          setState("ready");
+        }}
+        onWaiting={() => {
+          if (direct && media.current && !media.current.paused)
+            setBuffering(true);
+        }}
+        onPause={() => {
+          setPlaying(false);
+          setBuffering(false);
+        }}
         onTimeUpdate={(event) => setPosition(event.currentTarget.currentTime)}
       />
     </div>

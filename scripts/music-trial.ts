@@ -17,6 +17,15 @@ export async function localMusicTrial(
     const url = new URL(req.url!, "http://127.0.0.1:8788");
     if (url.pathname !== "/__music-trial/audio" || req.method !== "GET")
       return false;
+    if (url.searchParams.has("invalid")) {
+      res.writeHead(200, {
+        "Content-Type": mime,
+        "Content-Length": 10,
+        "Cache-Control": "no-store",
+      });
+      res.end("bad music!");
+      return true;
+    }
     res.writeHead(200, {
       "Content-Type": mime,
       "Content-Length": body.length,
