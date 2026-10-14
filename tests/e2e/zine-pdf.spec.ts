@@ -18,10 +18,14 @@ test("exports all twelve fixed layouts with Chinese fonts and custom paper colou
   const { photos } = await (
     await request.get(`${api}/v1/photos?featured=false`, { headers })
   ).json();
+  // Resume tests deliberately leave an original without a preview. PDF samples
+  // must select assets suitable for rendering, regardless of test order.
+  const readyPhotos = photos.filter((photo: {assets:{role:string}[]}) => photo.assets.some(asset => asset.role === "preview"));
+  expect(readyPhotos.length).toBeGreaterThanOrEqual(3);
   await page.goto("/");
   await page.getByRole("button", { name: "我的示例相册" }).click();
   for (const collection of zineCollections) {
-    const selected = photos.slice(0, collection.id === "city" ? 3 : 2);
+    const selected = readyPhotos.slice(0, collection.id === "city" ? 3 : 2);
     const config = {
       version: 1,
       background_color: collection.id === "coast" ? "#203A35" : "#F5EEE0",
