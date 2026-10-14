@@ -31,6 +31,7 @@ export interface ZinePage {
 export interface ZineConfig {
   version: 1;
   background_color?: string;
+  slide_seconds?: number;
   pages: ZinePage[];
 }
 export type TextBinding =

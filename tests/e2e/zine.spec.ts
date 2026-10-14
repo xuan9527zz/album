@@ -103,13 +103,13 @@ test("edits fixed zine pages, saves manual text, reads live metadata and loads l
   await page.screenshot({
     path: `.local/zine-player-${testInfo.project.name}.png`,
   });
-  await page.getByRole("button", { name: "自动放映", exact: true }).click();
+  await page.getByRole("button", { name: "播放影集", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "暂停放映", exact: true }),
+    page.getByRole("button", { name: "暂停影集", exact: true }),
   ).toBeVisible();
   await page.getByText("查看文字与照片资料", { exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "自动放映", exact: true }),
+    page.getByRole("button", { name: "播放影集", exact: true }),
   ).toBeVisible();
   await page.getByText("查看文字与照片资料", { exact: true }).click();
   await page.getByRole("button", { name: "下一页", exact: true }).click();

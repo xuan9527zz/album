@@ -1,313 +1,194 @@
-import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Music2, Pause, Play, RefreshCw, X } from "lucide-react";
-import { formatBytes } from "../../../packages/shared/src";
-import { downloadAudio } from "./prepared-audio";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
+import {
+  LoaderCircle,
+  Music2,
+  Pause,
+  Play,
+  RefreshCw,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
 
-export function FileAudioPlayer({
-  source,
-  title = "MP3 配乐试播",
-  subtitle = "本机试播",
-  expectedBytes,
-}: {
-  source: string;
-  title?: string;
-  subtitle?: string;
-  expectedBytes?: number;
-}) {
-  const [enabled, setEnabled] = useState(true);
-  return enabled ? (
-    <AudioSession
-      key={source}
-      source={source}
-      title={title}
-      subtitle={subtitle}
-      expectedBytes={expectedBytes}
-      close={() => setEnabled(false)}
-    />
-  ) : (
-    <button
-      className="music-entry"
-      aria-label="加载配乐"
-      onClick={() => setEnabled(true)}
-    >
-      <Music2 size={18} />
-      <span>加载配乐</span>
-    </button>
-  );
-}
-
-function AudioSession({
-  source,
-  title,
-  close,
-  subtitle,
-  expectedBytes,
-}: {
-  source: string;
-  title: string;
-  close: () => void;
-  subtitle: string;
-  expectedBytes?: number;
-}) {
+export type AudioControls = {
+  play: () => Promise<boolean>;
+  pause: () => void;
+  reset: () => void;
+};
+export const FileAudioPlayer = forwardRef<
+  AudioControls,
+  {
+    source: string;
+    title?: string;
+    active?: boolean;
+    standalone?: boolean;
+    onRetry?: () => void;
+  }
+>(function FileAudioPlayer(
+  { source, title = "配乐", active = false, standalone = false, onRetry },
+  ref,
+) {
   const media = useRef<HTMLAudioElement>(null);
-  const [nonce, setNonce] = useState(0),
-    [collapsed, setCollapsed] = useState(false);
-  const [state, setState] = useState<
-    "loading" | "decoding" | "ready" | "error"
-  >("loading");
-  const [bytes, setBytes] = useState({ loaded: 0, total: 0 });
-  const [url, setURL] = useState(""),
+  const timeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const pending = useRef(false),
+    attempt = useRef(0),
+    buffered = useRef(0);
+  const [muted, setMuted] = useState(false),
+    [playing, setPlaying] = useState(false);
+  const [loading, setLoading] = useState(false),
     [error, setError] = useState("");
-  const [direct, setDirect] = useState(
-    () =>
-      /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1),
-  );
-  const [buffering, setBuffering] = useState(false);
-  const [playing, setPlaying] = useState(false),
-    [position, setPosition] = useState(0),
-    [duration, setDuration] = useState(0);
-  useEffect(() => {
-    const controller = new AbortController();
-    let owned = "",
-      alive = true;
-    setState("loading");
-    setURL("");
-    setError("");
-    setBytes({ loaded: 0, total: 0 });
+  const clear = () => {
+    clearTimeout(timeout.current);
+    pending.current = false;
+    setLoading(false);
+  };
+  function pause() {
+    attempt.current++;
+    media.current?.pause();
+    clear();
     setPlaying(false);
-    setBuffering(false);
-    setPosition(0);
-    setDuration(0);
-    if (direct) {
-      // iOS can require a tap before fetching/decoding media. Keep playback
-      // available while preparing instead of waiting for canplay first.
-      setURL(new URL(source, location.href).href);
-      setState("decoding");
-    } else
-      void downloadAudio(
-        source,
-        controller.signal,
-        (value) => {
-          if (alive) setBytes(value);
-        },
-        expectedBytes,
-      )
-        .then((blob) => {
-          if (!alive) return;
-          owned = URL.createObjectURL(blob);
-          setURL(owned);
-          setState("decoding");
-        })
-        .catch((failure) => {
-          if (alive) {
-            setError((failure as Error).message);
-            setState("error");
-          }
-        });
-    const element = media.current;
-    return () => {
-      alive = false;
-      controller.abort();
-      element?.pause();
-      element?.removeAttribute("src");
-      element?.load();
-      if (owned) URL.revokeObjectURL(owned);
-    };
-  }, [source, nonce, expectedBytes, direct]);
-  useEffect(() => {
-    if (state !== "decoding" || direct) return;
-    const timer = window.setTimeout(() => {
-      setDirect(true);
-    }, 15000);
-    return () => window.clearTimeout(timer);
-  }, [state, direct]);
-  const percent = direct
-    ? null
-    : state === "ready"
-      ? 100
-      : bytes.total
-        ? Math.min(99, Math.floor((bytes.loaded / bytes.total) * 100))
-        : null;
-  const clock = (value: number) =>
-    `${Math.floor(value / 60)}:${String(Math.floor(value % 60)).padStart(2, "0")}`;
-  async function toggle() {
-    const element = media.current;
-    if (!element || (state !== "ready" && !(direct && state === "decoding")))
-      return;
-    if (!element.paused) {
-      element.pause();
-      return;
-    }
-    try {
-      if (direct && element.readyState < 3) setBuffering(true);
-      await element.play();
-      setError("");
-    } catch (failure) {
-      setBuffering(false);
-      if ((failure as Error).name === "AbortError" && element.paused) return;
-      if (!direct && (failure as Error).name === "NotSupportedError") {
-        setDirect(true);
-        return;
+  }
+  function arm() {
+    clearTimeout(timeout.current);
+    timeout.current = setTimeout(() => {
+      if (pending.current) {
+        media.current?.pause();
+        clear();
+        setError("配乐加载超时");
       }
-      setError("请点击播放配乐；如果仍无声音，可以静音观看。");
+    }, 45000);
+  }
+  async function play() {
+    const audio = media.current;
+    if (!audio) return false;
+    if (audio.muted) return true;
+    const current = ++attempt.current;
+    setError("");
+    pending.current = true;
+    setLoading(audio.readyState < 3);
+    arm();
+    try {
+      if (audio.error || error) audio.load();
+      await audio.play();
+      if (current !== attempt.current) return false;
+      clear();
+      setPlaying(true);
+      return true;
+    } catch (failure) {
+      if (current !== attempt.current) return false;
+      clear();
+      if ((failure as Error).name !== "AbortError")
+        setError("配乐暂时无法播放");
+      return false;
     }
   }
+  useImperativeHandle(ref, () => ({
+    play,
+    pause,
+    reset() {
+      pause();
+      if (media.current) media.current.currentTime = 0;
+    },
+  }));
+  useEffect(() => {
+    const audio = media.current;
+    return () => {
+      attempt.current++;
+      clearTimeout(timeout.current);
+      audio?.pause();
+      audio?.removeAttribute("src");
+      audio?.load();
+    };
+  }, [source]);
   return (
-    <div className="music-host file-audio-host">
+    <section className="album-audio" aria-label="影集配乐">
+      {standalone && (
+        <button
+          type="button"
+          aria-label={playing ? "暂停配乐" : "试听配乐"}
+          onClick={() => (playing ? pause() : void play())}
+        >
+          {playing ? <Pause size={17} /> : <Play size={17} />}
+        </button>
+      )}
+      <span className="album-audio-title" title={title}>
+        <Music2 size={15} />
+        <span>{title}</span>
+      </span>
+      {loading && (
+        <LoaderCircle
+          className="audio-spinner"
+          size={16}
+          aria-label="音乐缓冲中"
+        />
+      )}
       <button
-        className="music-entry"
-        aria-label="打开配乐面板"
-        onClick={() => setCollapsed(false)}
+        type="button"
+        aria-label={muted ? "开启声音" : "静音"}
+        aria-pressed={muted}
+        onClick={() => {
+          const next = !muted;
+          if (next && pending.current) pause();
+          setMuted(next);
+          if (media.current) media.current.muted = next;
+          if (!next && (active || playing)) void play();
+        }}
       >
-        <Music2 size={18} />
-        <span>
-          {state === "ready"
-            ? "配乐"
-            : percent === null
-              ? "准备音乐"
-              : `${percent}%`}
-        </span>
+        {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
       </button>
-      <section
-        className={`music-panel file-audio-panel${collapsed ? " is-collapsed" : ""}`}
-        aria-label="文件音乐播放器"
-      >
-        <header>
-          <div>
-            <strong>{title}</strong>
-            <small>{subtitle}</small>
-          </div>
+      {error && (
+        <span className="album-audio-error" role="alert">
+          {error}
           <button
-            aria-label={collapsed ? "展开配乐面板" : "收起配乐面板"}
-            onClick={() => setCollapsed((old) => !old)}
+            type="button"
+            aria-label="重试配乐"
+            onClick={() => (active || !onRetry ? void play() : onRetry())}
           >
-            <ChevronDown size={17} />
+            <RefreshCw size={15} />
           </button>
-          <button aria-label="关闭配乐" onClick={close}>
-            <X size={18} />
-          </button>
-        </header>
-        <div className="music-panel-body" hidden={collapsed}>
-          <div className="file-audio-progress">
-            <strong role="status">
-              {state === "error"
-                ? "音乐暂时未能准备好"
-                : direct && buffering
-                  ? "正在缓冲音乐…"
-                  : state === "ready"
-                    ? direct
-                      ? "在线播放已就绪"
-                      : "100% · 音乐准备完成"
-                    : state === "decoding"
-                      ? direct
-                        ? "点击播放即可开始"
-                        : "正在准备播放…"
-                      : `音乐准备中${percent === null ? "…" : ` · ${percent}%`}`}
-            </strong>
-            {state !== "error" && !direct && (
-              <progress
-                aria-label="音乐加载进度"
-                max={100}
-                value={percent ?? undefined}
-              />
-            )}
-            {!direct && (
-              <small>
-                {formatBytes(bytes.loaded)}
-                {bytes.total > 0 && ` / ${formatBytes(bytes.total)}`}
-              </small>
-            )}
-          </div>
-          {direct && <p>音乐随播放缓冲，翻页不会中断。</p>}
-          {(state === "ready" || (direct && state === "decoding")) && (
-            <>
-              <button
-                className="file-audio-play"
-                aria-label={playing ? "暂停配乐" : "播放配乐"}
-                onClick={() => void toggle()}
-              >
-                {playing ? <Pause size={18} /> : <Play size={18} />}{" "}
-                {playing ? "暂停配乐" : "播放配乐"}
-              </button>
-              {duration > 0 && Number.isFinite(duration) && (
-                <>
-                  <div className="file-audio-time">
-                    <span>{clock(position)}</span>
-                    <span>{clock(duration)}</span>
-                  </div>
-                  <input
-                    type="range"
-                    aria-label="配乐播放进度"
-                    min={0}
-                    max={duration || 1}
-                    step={0.1}
-                    value={Math.min(position, duration || 1)}
-                    onChange={(event) => {
-                      if (media.current)
-                        media.current.currentTime = Number(event.target.value);
-                      setPosition(Number(event.target.value));
-                    }}
-                  />
-                </>
-              )}
-            </>
-          )}
-          {error && (
-            <p className="story-error" role="alert">
-              {error}
-            </p>
-          )}
-          <div className="music-panel-actions">
-            {state === "error" && (
-              <button onClick={() => setNonce((old) => old + 1)}>
-                <RefreshCw size={14} />
-                重试音乐加载
-              </button>
-            )}
-            <button onClick={close}>静音观看</button>
-          </div>
-        </div>
-      </section>
+        </span>
+      )}
       <audio
-        key={nonce}
         ref={media}
-        src={url || undefined}
+        src={source}
         preload="auto"
         loop
-        onCanPlay={(event) => {
-          if (url && event.currentTarget.currentSrc === url) {
-            setDuration(event.currentTarget.duration);
-            setState("ready");
-          }
-        }}
-        onError={(event) => {
-          if (url && event.currentTarget.currentSrc === url) {
-            if (!direct) {
-              setDirect(true);
-              return;
-            }
-            setBuffering(false);
-            setState("error");
-            setError("音乐文件无法播放，请重试或换一个文件");
-          }
-        }}
-        onPlay={() => setPlaying(true)}
+        muted={muted}
         onPlaying={() => {
-          setBuffering(false);
+          clear();
           setPlaying(true);
-          setState("ready");
+          setError("");
         }}
+        onPause={() => setPlaying(false)}
         onWaiting={() => {
-          if (direct && media.current && !media.current.paused)
-            setBuffering(true);
+          if (media.current && !media.current.paused) {
+            if (!pending.current) {
+              pending.current = true;
+              arm();
+            }
+            setLoading(true);
+          }
         }}
-        onPause={() => {
-          setPlaying(false);
-          setBuffering(false);
+        onProgress={() => {
+          const audio = media.current;
+          const end = audio?.buffered.length
+            ? audio.buffered.end(audio.buffered.length - 1)
+            : 0;
+          if (end > buffered.current) {
+            buffered.current = end;
+            if (pending.current) arm();
+          }
         }}
-        onTimeUpdate={(event) => setPosition(event.currentTarget.currentTime)}
+        onError={() => {
+          clear();
+          setError("配乐暂时无法播放");
+        }}
       />
-    </div>
+    </section>
   );
-}
+});

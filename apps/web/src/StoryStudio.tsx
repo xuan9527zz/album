@@ -40,7 +40,6 @@ import {
   type MusicDraft,
 } from "./StoryMusic";
 import { StoryExport } from "./StoryExport";
-import { FileAudioPlayer } from "./FileAudioPlayer";
 import "./story-tools.css";
 import "./story.css";
 
@@ -271,6 +270,7 @@ function StoryEditor({
   const [title, setTitle] = useState("");
   const [template, setTemplate] = useState<ZineTemplate>("zine-city");
   const [transition, setTransition] = useState<Transition>("slide");
+  const [slideSeconds, setSlideSeconds] = useState(6);
   const [shared, setShared] = useState(false);
   const [selected, setSelected] = useState<Photo[]>([]);
   const [zineConfig, setZineConfig] = useState<ZineConfig | null>(null);
@@ -302,6 +302,7 @@ function StoryEditor({
         setTitle(story.title);
         setTemplate(story.template);
         setTransition(story.transition);
+        setSlideSeconds(story.zine_config.slide_seconds || 6);
         setShared(story.is_shared);
         setSelected(story.photos);
         setZineConfig(story.zine_config || null);
@@ -444,6 +445,9 @@ function StoryEditor({
       setError("至少选择两张照片");
       return;
     }
+    if (!Number.isInteger(slideSeconds) || slideSeconds < 2 || slideSeconds > 60) {
+      setError("翻页间隔请填写 2–60 秒的整数"); return;
+    }
     setSaving(true);
     setError("");
     try {
@@ -456,6 +460,7 @@ function StoryEditor({
         zine_config: zineConfig
           ? {
               ...zineConfig,
+              slide_seconds: slideSeconds,
               background_color:
                 normalizeColor(backgroundDraft) || backgroundDraft,
             }
@@ -793,6 +798,10 @@ function StoryEditor({
                 )}
               </label>
               <p className="story-control-label">切换动画</p>
+              <label className="story-interval-label">自动翻页间隔（秒）
+                <input aria-label="自动翻页间隔（秒）" type="number" min={2} max={60} step={1} value={slideSeconds}
+                  onChange={(event) => setSlideSeconds(Number(event.target.value))} />
+              </label>
               <div className="story-transition-options">
                 {(["slide", "fade", "zoom"] as Transition[]).map((option) => (
                   <button
@@ -989,14 +998,15 @@ function StoryReader({
       publicView={!!publicToken}
       toolbar={
         <>
-          {import.meta.env.DEV && localDemo && new URLSearchParams(location.search).has("musicTrial") ? (
-            <FileAudioPlayer source={`/__music-trial/audio${new URLSearchParams(location.search).get("musicTrial") === "stall" ? `?stall=${story.id}` : new URLSearchParams(location.search).get("musicTrial") === "failure" ? `?failure=${story.id}` : new URLSearchParams(location.search).get("musicTrial") === "invalid" ? "?invalid=1" : ""}`} />
-          ) : <MusicHost storyID={story.id} music={story.music} />}
           {client && story.is_owner && (
             <StoryExport story={story} client={client} />
           )}
         </>
       }
+      audio={import.meta.env.DEV && localDemo && new URLSearchParams(location.search).has("musicTrial")
+        ? { source: `/__music-trial/audio${new URLSearchParams(location.search).get("musicTrial") === "stall" ? `?hold=${story.id}` : new URLSearchParams(location.search).get("musicTrial") === "failure" ? `?failure=${story.id}` : new URLSearchParams(location.search).get("musicTrial") === "invalid" ? "?invalid=1" : ""}`, title: "配乐试播" }
+        : story.music?.enabled && story.music.provider === "file" ? { source: `${import.meta.env.BASE_URL}music/${story.music.provider_track_id}.mp3`, title: story.music.title || "Whenever" } : undefined}
+      legacyMusic={story.music?.enabled && story.music.provider !== "file" ? <MusicHost storyID={story.id} music={story.music} /> : undefined}
       renderPhoto={(photo) => (
         <StoryImage
           photo={story.photos.find((p) => p.id === photo.id)!}

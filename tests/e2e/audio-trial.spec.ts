@@ -1,16 +1,15 @@
 import {
-  expect,
   test,
+  expect,
   type Page,
   type APIRequestContext,
 } from "@playwright/test";
 import { newZineConfig } from "../../packages/zine/src/model";
-
-const api = "http://127.0.0.1:8788";
-const headers = {
-  Authorization: "Bearer demo:11111111-1111-4111-8111-111111111111",
-};
-async function openTrial(page: Page, request: APIRequestContext, mode = "1") {
+const api = "http://127.0.0.1:8788",
+  headers = {
+    Authorization: "Bearer demo:11111111-1111-4111-8111-111111111111",
+  };
+async function openTrial(page: Page, request: APIRequestContext, mode: string) {
   await request.post(`${api}/__test/reset-request-limits`);
   const { photos } = await (
     await request.get(`${api}/v1/photos?featured=false`, { headers })
@@ -18,163 +17,80 @@ async function openTrial(page: Page, request: APIRequestContext, mode = "1") {
   const selected = photos
     .filter((p: any) => p.assets.some((a: any) => a.role === "preview"))
     .slice(0, 3);
-  const response = await request.post(`${api}/v1/stories`, {
-    headers,
-    data: {
-      title: "音乐连续播放试验",
-      template: "zine-diary",
-      transition: "slide",
-      is_shared: false,
-      photo_ids: selected.map((p: any) => p.id),
-      zine_config: newZineConfig(selected, "zine-diary"),
-      music: null,
-    },
-  });
-  expect(response.ok()).toBe(true);
-  const story = await response.json();
+  const story = await (
+    await request.post(`${api}/v1/stories`, {
+      headers,
+      data: {
+        title: "播放恢复试验",
+        template: "zine-diary",
+        transition: "slide",
+        is_shared: false,
+        photo_ids: selected.map((p: any) => p.id),
+        zine_config: {
+          ...newZineConfig(selected, "zine-diary"),
+          slide_seconds: 60,
+        },
+        music: null,
+      },
+    })
+  ).json();
   await page.goto("/");
   await page.getByRole("button", { name: "我的示例相册" }).click();
   await page.goto(`/?musicTrial=${mode}#/stories/${story.id}`);
   return story.id as string;
 }
-
-test("prepares the entire audio file and keeps playback while turning pages and offline", async ({
+test("native music retries the same URL after server recovery and starts the slideshow", async ({
   page,
   request,
-}, testInfo) => {
-  test.skip(
-    testInfo.project.name === "webkit" && process.platform === "win32",
-    "This Windows WebKit runtime plays HTTP MP3 but rejects Blob media; real iPhone verification is still required.",
-  );
-  let downloads = 0;
-  page.on("request", (r) => {
-    if (r.url().includes("/__music-trial/audio")) downloads++;
-  });
-  const id = await openTrial(page, request);
-  const player = page.getByRole("region", { name: "文件音乐播放器" });
-  await expect(player.getByRole("status")).toHaveText("100% · 音乐准备完成");
-  expect(await page.locator("audio").getAttribute("src")).toMatch(/^blob:/);
-  expect(
-    await page.locator("audio").evaluate((a: HTMLAudioElement) => a.paused),
-  ).toBe(true);
-  await page.getByRole("button", { name: "播放配乐", exact: true }).click();
+}) => {
+  const id = await openTrial(page, request, "failure");
+  await expect(page.getByRole("alert")).toContainText("配乐暂时无法播放");
+  const url = await page.locator("audio").getAttribute("src");
+  await request.post(`${api}/__music-trial/recover?failure=${id}`);
+  await page.getByRole("button", { name: "重试配乐", exact: true }).click();
   await expect
     .poll(() =>
       page.locator("audio").evaluate((a: HTMLAudioElement) => a.currentTime),
     )
     .toBeGreaterThan(0.25);
-  const media = await page.locator("audio").elementHandle();
-  const source = await page.locator("audio").getAttribute("src");
-  await page.getByRole("button", { name: "收起配乐面板", exact: true }).click();
-  await page.getByRole("button", { name: "下一页", exact: true }).click();
-  await expect(page.locator(".story-player-count")).toContainText("02 /");
-  expect(
-    await page.locator("audio").evaluate((a, before) => a === before, media),
-  ).toBe(true);
-  expect(await page.locator("audio").getAttribute("src")).toBe(source);
-  expect(
-    await page.locator("audio").evaluate((a: HTMLAudioElement) => a.paused),
-  ).toBe(false);
-  await page.context().setOffline(true);
-  await expect
-    .poll(() =>
-      page.locator("audio").evaluate((a: HTMLAudioElement) => a.currentTime),
-    )
-    .toBeGreaterThan(0.6);
-  await page.getByRole("button", { name: "展开配乐面板", exact: true }).click();
-  await page.screenshot({
-    path: `.local/audio-trial-${testInfo.project.name}.png`,
-  });
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= innerWidth + 1,
-    ),
-  ).toBe(true);
-  await page.getByRole("button", { name: "静音观看", exact: true }).click();
-  await expect(page.locator("audio")).toHaveCount(0);
-  expect(await media!.evaluate((a: HTMLAudioElement) => a.paused)).toBe(true);
-  expect(downloads).toBe(1);
-  await page.context().setOffline(false);
+  await expect(page.locator("audio")).toHaveAttribute("src", url!);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.getByRole("button", { name: "暂停影集", exact: true }).click();
   await request.delete(`${api}/v1/stories/${id}`, { headers });
 });
-
-test("times out stalled music, retries, and can cancel without blocking the album", async ({
+test("stalled native music times out and reloads while leaving photo navigation usable", async ({
   page,
   request,
-}, testInfo) => {
-  test.skip(
-    testInfo.project.name === "webkit" && process.platform === "win32",
-    "This Windows WebKit runtime cannot decode Blob media; keep the error/skip flow covered separately.",
-  );
+}) => {
   await page.clock.install();
   const id = await openTrial(page, request, "stall");
-  await expect(page.getByRole("status")).toContainText("音乐准备中");
+  await page.getByRole("button", { name: "播放影集", exact: true }).click();
   await page.clock.fastForward(46000);
-  await expect(page.getByRole("alert")).toContainText("音乐加载停滞");
-  await page.getByRole("button", { name: "重试音乐加载", exact: true }).click();
-  await expect(page.getByRole("status")).toHaveText("100% · 音乐准备完成");
-  await page.getByRole("button", { name: "关闭配乐", exact: true }).click();
-  await expect(page.locator("audio")).toHaveCount(0);
-  await page.getByRole("button", { name: "下一页", exact: true }).click();
-  await expect(page.locator(".story-player-count")).toContainText("02 /");
-  await request.delete(`${api}/v1/stories/${id}`, { headers });
-});
-
-test("does not report 100 percent when fully downloaded bytes cannot be played", async ({
-  page,
-  request,
-}) => {
-  // Serve invalid bytes to both fetch and the platform's native media stack;
-  // Windows WebKit media requests do not pass through Playwright routing.
-  const id = await openTrial(page, request, "invalid");
-  await expect(page.getByRole("alert")).toContainText("音乐文件无法播放");
-  await expect(page.getByRole("status")).not.toContainText("100%");
-  await page.getByRole("button", { name: "静音观看", exact: true }).click();
-  await page.getByRole("button", { name: "下一页", exact: true }).click();
-  await expect(page.locator(".story-player-count")).toContainText("02 /");
-  await request.delete(`${api}/v1/stories/${id}`, { headers });
-});
-
-test("iPhone native playback recovers from a server failure using the same URL", async ({
-  page,
-  request,
-}) => {
-  await page.addInitScript(() =>
-    Object.defineProperty(navigator, "userAgent", {
-      configurable: true,
-      value:
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1",
-    }),
-  );
-  const id = await openTrial(page, request, "failure");
-  const player = page.getByRole("region", {
-    name: "文件音乐播放器",
-    exact: true,
-  });
-  await expect(player.getByRole("alert")).toContainText("音乐文件无法播放");
-  const old = await page.locator("audio").elementHandle();
-  const source = await page.locator("audio").getAttribute("src");
+  await expect(page.getByRole("alert")).toContainText("配乐加载超时");
   await request.post(`${api}/__music-trial/recover?failure=${id}`);
-  await player
-    .getByRole("button", { name: "重试音乐加载", exact: true })
-    .click();
-  await expect(player.getByRole("status")).toHaveText("在线播放已就绪");
-  await expect(page.locator("audio")).toHaveAttribute("src", source!);
-  expect(
-    await page.locator("audio").evaluate((a, previous) => a === previous, old),
-  ).toBe(false);
-  expect(
-    await old!.evaluate(
-      (a: HTMLAudioElement) => a.paused && !a.hasAttribute("src"),
-    ),
-  ).toBe(true);
-  await expect(player.getByRole("alert")).toHaveCount(0);
-  await player.getByRole("button", { name: "播放配乐", exact: true }).click();
+  await page.getByRole("button", { name: "重试配乐", exact: true }).click();
   await expect
     .poll(() =>
       page.locator("audio").evaluate((a: HTMLAudioElement) => a.currentTime),
     )
     .toBeGreaterThan(0.25);
-  await player.getByRole("button", { name: "暂停配乐", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.getByRole("button", { name: "暂停影集", exact: true }).click();
+  await request.delete(`${api}/v1/stories/${id}`, { headers });
+});
+test("invalid music can be muted and the album can still be played", async ({
+  page,
+  request,
+}) => {
+  const id = await openTrial(page, request, "invalid");
+  await expect(page.getByRole("alert")).toContainText("配乐暂时无法播放");
+  await page.getByRole("button", { name: "静音", exact: true }).click();
+  await page.getByRole("button", { name: "播放影集", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "暂停影集", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "下一页", exact: true }).click();
+  await expect(page.locator(".story-player-count")).toContainText("02 /");
+  await page.getByRole("button", { name: "暂停影集", exact: true }).click();
   await request.delete(`${api}/v1/stories/${id}`, { headers });
 });

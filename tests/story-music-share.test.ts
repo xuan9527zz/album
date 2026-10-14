@@ -131,6 +131,51 @@ it("protects music writes, public link tokens and preview-only reading, and revo
   const story = await created.json();
   expect(story.zine_config.background_color).toBe("#123456");
   expect(story.music.source_url).toBe("https://music.163.com/song?id=186016");
+  const fileBody = {
+    ...body,
+    zine_config: { ...body.zine_config, slide_seconds: 3 },
+    music: { ...music, provider: "file", provider_track_id: "whenever" },
+  };
+  const changed = await api(`/v1/stories/${story.id}`, fileBody, "PATCH");
+  expect(changed.status).toBe(200);
+  const withFile = await changed.json();
+  expect(withFile.zine_config.slide_seconds).toBe(3);
+  expect(withFile.music.source_url).toBe(
+    "https://xuan9527zz.github.io/album/music/whenever.mp3",
+  );
+  expect(parseMusicUrl(withFile.music.source_url)).toMatchObject({
+    ok: true,
+    provider: "file",
+    provider_track_id: "whenever",
+  });
+  for (const seconds of [0, 1, 1.5, 61, "3", null]) {
+    const invalid = {
+      ...fileBody,
+      zine_config: { ...fileBody.zine_config, slide_seconds: seconds },
+    };
+    expect(
+      (await api(`/v1/stories/${story.id}`, invalid, "PATCH")).status,
+    ).toBe(400);
+    await expect(
+      setup.db.call("album_v10_action", {
+        p_owner: owner,
+        p_action: "update",
+        p_data: { ...invalid, story_id: story.id },
+      }),
+    ).rejects.toThrow(/BAD_REQUEST/);
+  }
+  expect(
+    (
+      await api(
+        `/v1/stories/${story.id}`,
+        {
+          ...fileBody,
+          music: { ...fileBody.music, provider_track_id: "evil" },
+        },
+        "PATCH",
+      )
+    ).status,
+  ).toBe(400);
   expect(
     (await api(`/v1/stories/${story.id}`, body, "PATCH", other)).status,
   ).toBe(404);
@@ -156,7 +201,9 @@ it("protects music writes, public link tokens and preview-only reading, and revo
   expect(JSON.stringify(publicStory)).not.toMatch(
     /object_key|original_image|checksum_value|owner_id|token_hash/,
   );
-  expect(publicStory.music.provider).toBe("netease");
+  expect(publicStory.music.provider).toBe("file");
+  expect(publicStory.zine_config.slide_seconds).toBe(3);
+  expect(publicStory.music.source_url).toBe(withFile.music.source_url);
   expect(
     (await api(`/v1/public/stories/${link.token}`, {}, "POST", null)).status,
   ).toBe(401);

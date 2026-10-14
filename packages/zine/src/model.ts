@@ -112,6 +112,7 @@ export function syncZineConfig(
   const single = collection.spreads.find((p, i) => i > 0 && p.slots === 1)!;
   return {
     version: 1,
+    ...(config.slide_seconds ? { slide_seconds: config.slide_seconds } : {}),
     ...(config.background_color
       ? { background_color: config.background_color }
       : {}),

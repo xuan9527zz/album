@@ -6,6 +6,7 @@ import { musicInputSchema } from "./music";
 export const zineConfigSchema = z
   .object({
     version: z.literal(1),
+    slide_seconds: z.number().int().min(2).max(60).optional(),
     background_color: z
       .string()
       .regex(/^#[0-9A-Fa-f]{6}$/)

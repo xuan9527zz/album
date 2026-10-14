@@ -32,6 +32,8 @@ Worker 的 `/health` 返回 200，匿名 `/v1/photos` 返回 401；网关相同�
 
 ## 4. GitHub Pages
 
+2026-10-15 文件 BGM 与同步放映：生产已执行第十次迁移 `202610150001_story_playback.sql`，新 RPC 存在，anon 不可执行、service_role 可执行。Worker 已更新为 `cd0081b3-0f36-46f6-9121-92265afc334e`，调用 `album_v10_action`；网关健康 200、匿名影集列表 401、无效公开令牌 404。新增文件配乐目录、2–60 秒翻页间隔和底部统一播放控制；网关路由无变化。操作说明见 [BGM 发布说明](BGM_RELEASE.md)。
+
 iPhone 配乐最终修复：[Pages #29](https://github.com/xuan9527zz/album/actions/runs/38614031132) 从 `75f3fdc` 发布成功，[Checks #51](https://github.com/xuan9527zz/album/actions/runs/38613942429) 全部通过（49 项数据库/API、63 项浏览器及 PWA）。用户在真实 iPhone 打开 `?refresh=ios-music-20261015-r2#/music-trial` 后确认无需切换兼容模式便可直接播放。原生播放遇错后同一 URL 可重试，翻页保留播放器。数据库、API 和歌曲内容均无变动。
 
 2026-10-15 iPhone 配乐修复：[Pages #28](https://github.com/xuan9527zz/album/actions/runs/38612411124) 从 `3abc2bc` 发布成功。iPhone/iPad 默认原生 HTTP 音频，由浏览器缓冲，准备阶段可点击播放；其他设备 Blob 解码失败自动切换。新试播入口 `?refresh=ios-music-20261015#/music-trial` 可避开旧 HTML。正式入口 `index-ovO172TI.js`，线上已确认自动选择逻辑和新提示存在；设备端自动选择仍待用户复测。没有迁移、API 或音乐文件内容变动。

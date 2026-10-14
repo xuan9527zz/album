@@ -1,5 +1,4 @@
 import { ZinePlayer } from "./ZineStudio";
-import { FileAudioPlayer } from "./FileAudioPlayer";
 import { newZineConfig, type ZinePhoto } from "../../../packages/zine/src";
 import "./story.css";
 import "./story-tools.css";
@@ -34,14 +33,7 @@ export default function HostedMusicTrial() {
       <ZinePlayer
         story={story}
         publicView
-        toolbar={
-          <FileAudioPlayer
-            source={audio}
-            title="Whenever"
-            subtitle="林俊杰 · 在线试播"
-            expectedBytes={9970460}
-          />
-        }
+        audio={{ source: audio, title: "Whenever" }}
         renderPhoto={(photo) => {
           const index = photos.findIndex((p) => p.id === photo.id),
             [paper, ink] = palettes[index];

@@ -1,25 +1,43 @@
 import { z } from "zod";
+import { audioTrack, audioTracks } from "./audio-tracks";
 
 export const trackIdPattern = /^[1-9][0-9]{0,19}$/;
 export const musicInputSchema = z
   .object({
-    provider: z.enum(["netease", "qq"]),
-    provider_track_id: z.string().regex(trackIdPattern),
+    provider: z.enum(["netease", "qq", "file"]),
+    provider_track_id: z.string().max(20),
     enabled: z.boolean(),
     title: z.string().trim().max(100).nullable(),
     artist: z.string().trim().max(100).nullable(),
     schema_version: z.literal(1),
   })
-  .strict();
+  .strict()
+  .refine(
+    (music) =>
+      music.provider === "file"
+        ? !!audioTrack(music.provider_track_id)
+        : trackIdPattern.test(music.provider_track_id),
+    { message: "配乐不存在" },
+  );
 export type MusicInput = z.infer<typeof musicInputSchema>;
 export type MusicConfig = MusicInput & { source_url: string };
-export const musicProviderName = { netease: "网易云音乐", qq: "QQ 音乐" };
+export const musicProviderName = {
+  netease: "网易云音乐",
+  qq: "QQ 音乐",
+  file: "文件配乐",
+};
 export function musicSource(provider: MusicInput["provider"], id: string) {
+  if (provider === "file") {
+    const track = audioTrack(id);
+    if (!track) throw new Error("配乐不存在");
+    return track.url;
+  }
   return provider === "netease"
     ? `https://music.163.com/song?id=${id}`
     : `https://i.y.qq.com/v8/playsong.html?songid=${id}&songtype=0`;
 }
 export function musicEmbed(music: MusicInput) {
+  if (music.provider === "file") throw new Error("文件配乐使用原生播放器");
   const validated = musicInputSchema.parse({
     provider: music.provider,
     provider_track_id: music.provider_track_id,
@@ -71,6 +89,14 @@ export function parseMusicUrl(input: string): ParsedMusic {
   } catch {
     return fail("INVALID_URL", "请粘贴完整的 HTTPS 单曲链接。");
   }
+  const file = audioTracks.find((track) => track.url === url.href);
+  if (file)
+    return {
+      ok: true,
+      provider: "file",
+      provider_track_id: file.id,
+      source_url: file.url,
+    };
   if (
     ["163cn.tv", "c6.y.qq.com", "y.music.163.com", "url.cn"].includes(
       url.hostname,

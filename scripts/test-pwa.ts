@@ -332,7 +332,6 @@ try {
     ).match("/album/index.html"))!.text(),
   }));
   assert.ok(!upgraded.html.includes("retired-entry"));
-  assert.ok(!upgraded.keys.includes("album-shell-stale-upgrade-test"));
   await page.waitForFunction(
     () => document.querySelector(".update-banner") === null,
   );
@@ -354,6 +353,13 @@ try {
       page.evaluate(
         async (name) => (await caches.keys()).includes(name),
         previousCache,
+      ),
+    )
+    .toBe(false);
+  await expect
+    .poll(() =>
+      page.evaluate(async () =>
+        (await caches.keys()).includes("album-shell-stale-upgrade-test"),
       ),
     )
     .toBe(false);

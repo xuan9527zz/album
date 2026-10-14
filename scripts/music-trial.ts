@@ -45,6 +45,8 @@ export async function localMusicTrial(
       "Cache-Control": "no-store",
     });
     const stall = url.searchParams.get("stall");
+    const hold = url.searchParams.get("hold");
+    if (hold && !recovered.has(hold)) { res.write(body.subarray(0, 16)); return true; }
     if (stall && !stalled.has(stall)) {
       stalled.add(stall);
       res.write(body.subarray(0, 1024));

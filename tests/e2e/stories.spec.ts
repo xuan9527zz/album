@@ -31,6 +31,7 @@ test("creates new templates, keeps music across horizontal turns, exports PDF an
   await page.getByLabel("背景颜色代码").fill("#DCE8DE");
   await page.getByRole("button", { name: "滑动与淡入", exact: true }).click();
   await page.getByRole("button", { name: "03 背景音乐", exact: true }).click();
+  await page.getByLabel("配乐", {exact:true}).selectOption("link");
   await page
     .getByLabel("歌曲链接")
     .fill("https://music.163.com/#/song?id=186016");

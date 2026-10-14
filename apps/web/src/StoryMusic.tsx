@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { ExternalLink, Music2, RefreshCw, X, ChevronDown } from "lucide-react";
+import { audioTrack, audioTracks } from "../../../packages/zine/src/audio-tracks";
+import { FileAudioPlayer } from "./FileAudioPlayer";
 import {
   musicEmbed,
   musicProviderName,
@@ -45,6 +47,8 @@ export function MusicSettings({
   onChange: (draft: MusicDraft) => void;
 }) {
   const parsed = draft.url.trim() ? parseMusicUrl(draft.url) : null;
+  const [custom, setCustom] = useState(false);
+  useEffect(() => { if (draft.url && (!parsed?.ok || parsed.provider !== "file")) setCustom(true); }, [draft.url]);
   const preview = parsed?.ok
     ? {
         ...musicFromDraft({ ...draft, enabled: true })!,
@@ -56,9 +60,20 @@ export function MusicSettings({
       <div className="story-section-heading">
         <span>05</span>
         <h2>背景音乐</h2>
-        <small>可选 · 官方播放器</small>
       </div>
-      <label>
+      <label>配乐
+        <select aria-label="配乐" value={parsed?.ok && parsed.provider === "file" ? parsed.provider_track_id : custom ? "link" : ""}
+          onChange={(event) => {
+            const track = audioTrack(event.target.value);
+            setCustom(event.target.value === "link");
+            onChange(track ? { url:track.url, enabled:true, title:track.title, artist:track.artist } : { ...emptyMusic });
+          }}>
+          <option value="">不使用配乐</option>
+          {audioTracks.map((track) => <option key={track.id} value={track.id}>{track.title} · {track.artist}</option>)}
+          <option value="link">粘贴歌曲链接</option>
+        </select>
+      </label>
+      {custom && <label>
         歌曲链接
         <input
           aria-label="歌曲链接"
@@ -68,18 +83,16 @@ export function MusicSettings({
           onChange={(e) => onChange({ ...draft, url: e.target.value })}
           placeholder="粘贴网易云或 QQ 音乐完整单曲链接"
         />
-      </label>
-      {parsed && (
+      </label>}
+      {parsed && !parsed.ok && (
         <p
-          className={parsed.ok ? "music-recognized" : "story-error"}
-          role={parsed.ok ? undefined : "alert"}
+          className="story-error"
+          role="alert"
         >
-          {parsed.ok
-            ? `${musicProviderName[parsed.provider]} · 歌曲 ID ${parsed.provider_track_id}`
-            : parsed.message}
+          {parsed.message}
         </p>
       )}
-      <div className="music-text-fields">
+      {custom && <div className="music-text-fields">
         <label>
           曲名（可选）
           <input
@@ -98,7 +111,7 @@ export function MusicSettings({
             onChange={(e) => onChange({ ...draft, artist: e.target.value })}
           />
         </label>
-      </div>
+      </div>}
       <label className="music-enable">
         <input
           type="checkbox"
@@ -108,7 +121,8 @@ export function MusicSettings({
         启用影集背景音乐
       </label>
       <div className="music-settings-actions">
-        {preview && (
+        {preview?.provider === "file" && <FileAudioPlayer key={preview.provider_track_id} source={`${import.meta.env.BASE_URL}music/${preview.provider_track_id}.mp3`} title={preview.title || "配乐"} standalone />}
+        {preview && preview.provider !== "file" && (
           <MusicHost
             key={`${preview.provider}/${preview.provider_track_id}`}
             music={preview}
@@ -122,9 +136,7 @@ export function MusicSettings({
           </button>
         )}
       </div>
-      <p className="zine-help">
-        粘贴完整单曲链接。音乐由官方播放器提供，开启后需在播放器内点击播放；部分歌曲可能因会员、版权、地区或浏览器限制无法播放。
-      </p>
+      {parsed?.ok && parsed.provider !== "file" && <p className="zine-help">平台歌曲需要在官方播放器中单独点播放；文件配乐可随影集一起播放。</p>}
     </section>
   );
 }

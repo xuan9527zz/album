@@ -23,6 +23,7 @@ import type {
   ZineTemplate,
 } from "../../../packages/zine/src";
 import "./zine-studio.css";
+import { FileAudioPlayer, type AudioControls } from "./FileAudioPlayer";
 
 function usePhone() {
   const [phone, setPhone] = useState(
@@ -315,6 +316,8 @@ export function ZinePlayer({
   renderPhoto,
   prefetch,
   toolbar,
+  audio,
+  legacyMusic,
   publicView = false,
 }: {
   story: {
@@ -329,6 +332,8 @@ export function ZinePlayer({
   renderPhoto: (photo: ZinePhoto) => ReactNode;
   prefetch?: (ids: Array<string | null>) => void;
   toolbar?: ReactNode;
+  audio?: { source: string; title: string };
+  legacyMusic?: ReactNode;
   publicView?: boolean;
 }) {
   const phone = usePhone();
@@ -347,16 +352,46 @@ export function ZinePlayer({
   const pageIndex = phone ? Math.floor(index / 2) : index;
   const page = pages[pageIndex];
   const touch = useRef<{ x: number; y: number } | null>(null);
+  const music = useRef<AudioControls>(null),
+    playAttempt = useRef(0);
+  const [starting, setStarting] = useState(false);
+  const previousPhone = useRef(phone);
+  const seconds = config.slide_seconds || 6;
+  function pausePlayback() {
+    playAttempt.current++;
+    setStarting(false);
+    setPlaying(false);
+    music.current?.pause();
+  }
+  async function togglePlayback() {
+    if (playing || starting) {
+      pausePlayback();
+      return;
+    }
+    if (index === steps - 1) {
+      setStep(0);
+      setPreviousStep(null);
+      music.current?.reset();
+    }
+    const current = ++playAttempt.current;
+    const promise = music.current?.play(); // Runs inside this click, before any await.
+    setStarting(!!promise);
+    if (promise) await promise;
+    if (current !== playAttempt.current) return;
+    setStarting(false);
+    setPlaying(true);
+  }
   function go(next: number) {
     if (next < 0 || next >= steps || next === index) return;
     setPreviousStep(index);
     setDirection(next > index ? "next" : "previous");
     setStep(next);
-    if (next === steps - 1) setPlaying(false);
   }
   useEffect(() => {
+    if (previousPhone.current === phone) return;
+    previousPhone.current = phone;
     setStep(0);
-    setPlaying(false);
+    pausePlayback();
     setPreviousStep(null);
   }, [phone]);
   useEffect(() => {
@@ -366,9 +401,19 @@ export function ZinePlayer({
   }, [step, previousStep]);
   useEffect(() => {
     if (!playing || steps < 2) return;
-    const timer = window.setTimeout(() => go(index + 1), 6000);
+    const timer = window.setTimeout(
+      () => (index === steps - 1 ? pausePlayback() : go(index + 1)),
+      seconds * 1000,
+    );
     return () => window.clearTimeout(timer);
-  }, [playing, index, steps]);
+  }, [playing, index, steps, seconds]);
+  useEffect(() => {
+    const hide = () => {
+      if (document.hidden) pausePlayback();
+    };
+    document.addEventListener("visibilitychange", hide);
+    return () => document.removeEventListener("visibilitychange", hide);
+  }, []);
   useEffect(() => {
     prefetch?.(pages[pageIndex + 1]?.photo_ids || []);
   }, [pageIndex, story]);
@@ -392,13 +437,12 @@ export function ZinePlayer({
       if (e.code === "Space") {
         if (steps < 2) return;
         e.preventDefault();
-        if (index === steps - 1) setStep(0);
-        setPlaying((v) => !v);
+        void togglePlayback();
       }
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [index, steps]);
+  }, [index, steps, playing, starting]);
   return (
     <div
       className={`story-player zine-book-player story-template-${story.template}`}
@@ -415,9 +459,6 @@ export function ZinePlayer({
           {story.is_owner && (
             <a href={`#/stories/${story.id}/edit`}>编辑影集</a>
           )}
-          <span>
-            {index + 1} / {steps}
-          </span>
         </div>
       </header>
       <div
@@ -463,7 +504,7 @@ export function ZinePlayer({
                     view={phone ? (value % 2 ? "right" : "left") : "spread"}
                     renderPhoto={renderPhoto}
                     background={config.background_color}
-                    onReadOpen={() => setPlaying(false)}
+                    onReadOpen={pausePlayback}
                   />
                 </div>
               );
@@ -495,22 +536,29 @@ export function ZinePlayer({
           <button
             type="button"
             disabled={steps < 2}
-            aria-label={playing ? "暂停放映" : "自动放映"}
-            onClick={() => {
-              if (index === steps - 1) setStep(0);
-              setPlaying((v) => !v);
-            }}
+            aria-label={playing || starting ? "暂停影集" : "播放影集"}
+            onClick={() => void togglePlayback()}
           >
-            {playing ? <Pause size={18} /> : <Play size={18} />}
-            <span>{playing ? "暂停" : "自动放映"}</span>
+            {playing || starting ? <Pause size={18} /> : <Play size={18} />}
+            <span>{playing || starting ? "暂停" : "播放影集"}</span>
           </button>
         </div>
+        {audio && (
+          <FileAudioPlayer
+            key={audio.source}
+            ref={music}
+            source={audio.source}
+            title={audio.title}
+            active={playing}
+            onRetry={() => void togglePlayback()}
+          />
+        )}
         <select
           className="zine-page-select"
           value={index}
           aria-label="影集页码"
           onChange={(e) => {
-            setPlaying(false);
+            pausePlayback();
             go(Number(e.target.value));
           }}
         >
@@ -525,6 +573,7 @@ export function ZinePlayer({
           {String(steps).padStart(2, "0")}
         </span>
       </footer>
+      {legacyMusic && <div className="album-legacy-music">{legacyMusic}</div>}
     </div>
   );
 }
