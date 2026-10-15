@@ -24,6 +24,7 @@ jobs:
             echo '::notice::Worker was not deployed: configure CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID for album-production.'
             echo '### Worker 未部署' >> "$GITHUB_STEP_SUMMARY"
             echo '缺少 Cloudflare 发布凭据。请设置 CLOUDFLARE_API_TOKEN secret 和 CLOUDFLARE_ACCOUNT_ID variable；也可在已登录 Wrangler 的本机运行 npm run deploy:api。现有线上版本不受影响。' >> "$GITHUB_STEP_SUMMARY"
+          fi
   deploy:
     needs: configuration
     if: needs.configuration.outputs.ready == 'true'
