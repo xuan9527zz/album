@@ -6,7 +6,7 @@
 
 数据库新增 `album_audio_files`、仅 service_role 可执行的音乐管理和到期 RPC，以及 `album_v13_action`。创建/编辑影集时检查配乐归属和有效期，保留跨页取景、共享照片及公开链接规则。上传检查文件大小、扩展名和音频头；所有者列表和上传仍须有效成员登录。匿名播放仅允许精确 UUID 路径的 GET/HEAD，支持 iPhone 所需 Range/206/Content-Length；网关和 Worker 均不永久缓存音频。GitHub 授权不发给浏览器或媒体 CDN。
 
-正式第十三次迁移 `202610150004_temporary_music.sql` 已执行成功，编辑器内容与本地文件一致。正式网关已独立部署，Worker 当前版本 `961f62f8-7fd2-42fd-944d-b7b9225b62e3`，调用 v13 并启用每分钟音乐清理。`GITHUB_MUSIC_TOKEN` 已通过本地忽略文件配置到 Worker secret；凭据仅限 album 的 Contents 读写，用户设置有效期至 2027-01-13，需在失效前轮换。不要提交或打印凭据。
+正式第十三次迁移 `202610150004_temporary_music.sql` 已执行成功，编辑器内容与本地文件一致。正式网关已独立部署，Worker 当前版本 `b7ddbc01-3697-465a-8c1e-b5b644b4de61`，调用 v13 并启用每分钟音乐清理。`GITHUB_MUSIC_TOKEN` 已通过本地忽略文件配置到 Worker secret；凭据仅限 album 的 Contents 读写，用户设置有效期至 2027-01-13，需在失效前轮换。不要提交或打印凭据。
 
 观看页移除“查看文字与照片资料”，保留页码下拉跳转框。自动播放按作者设置的间隔从最后一个完整跨页循环回第一个，音乐持续播放；手动上一页/下一页也循环。跳转页码或切后台仍暂停播放。完整跨页按舞台实际剩余宽高缩放，不再用固定视口高度估算；短横屏压缩工具栏并保留安全区。
 
@@ -18,6 +18,10 @@
 
 Worker 工作流新增凭据预检。缺少 `CLOUDFLARE_API_TOKEN` secret 或 `CLOUDFLARE_ACCOUNT_ID` variable 时，部署任务明确跳过并显示“Worker 未部署”，不会把跳过当成发布成功；本次正式 Worker 使用已登录的本机 Wrangler 发布。GitHub Actions 自动发布需要独立的 Cloudflare 部署凭据，和音乐 GitHub 凭据无关。
 
-[Worker #3](https://github.com/xuan9527zz/album/actions/runs/38680588080) 已验证预检成功、deploy 明确 skipped。Cloudflare 控制台曾有动态模块加载错误，刷新入口后恢复；已准备当前账户的 Workers Scripts:Edit 令牌摘要，有效至 2027-01-13，最终生成和保存到 GitHub 由用户亲自完成。该权限覆盖当前账户的 Workers，不限单个 Worker；尚未声称 GitHub 自动发布已配置。
+[Worker #3](https://github.com/xuan9527zz/album/actions/runs/38680588080) 曾验证缺凭据时预检成功、deploy 明确 skipped。Cloudflare 控制台动态模块加载错误恢复后，用户亲自生成当前账户的 Workers Scripts:Edit 令牌并保存到相册仓库的 `CLOUDFLARE_API_TOKEN` 加密 Secret；`CLOUDFLARE_ACCOUNT_ID` 仓库变量已配置。令牌有效至 2027-01-13，权限覆盖当前账户的 Workers，不限单个 Worker。未读取或打印令牌值。
+
+[Worker #4](https://github.com/xuan9527zz/album/actions/runs/38682587189) 从 `3b1a0b5` 实际发布成功：configuration 和 deploy 均 success，56 项数据库/API 测试通过，日志记录上传、部署、两个定时触发器及上述新版本。发布后通过正式网关核对健康 200、匿名照片列表 401、已上传音乐 Range 206/1024 字节且音频头正确，已有 Worker secrets 正常保留。该工作流当前由 GitHub 的 Run workflow 手动触发，并非每次推送自动部署。
+
+最终代码的 [Checks #59](https://github.com/xuan9527zz/album/actions/runs/38681468406) 已全部通过：56 项数据库/API、包含 HEIC 的 69 项浏览器，以及 PWA 预装、升级和恢复检查。
 
 接口依据：[GitHub Release assets](https://docs.github.com/en/rest/releases/assets?apiVersion=2026-03-10)。
