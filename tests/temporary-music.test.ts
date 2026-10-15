@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { localDatabase, demoUsers } from "../scripts/local-database";
 import { LocalStore } from "../scripts/local-store";
 import { LocalMusicStore } from "../scripts/local-music-store";
@@ -10,6 +10,21 @@ import { parseMusicUrl, musicSource } from "../packages/zine/src/music";
 const opened: Awaited<ReturnType<typeof localDatabase>>[] = [];
 afterEach(async () => {
   await Promise.all(opened.splice(0).map((s) => s.sql.close()));
+});
+
+it("calls the runtime fetch without a MusicStore receiver", async () => {
+  vi.stubGlobal("fetch", function (this: unknown) {
+    if (this !== undefined && this !== globalThis)
+      throw new TypeError("Illegal invocation");
+    return Promise.resolve(new Response(new Uint8Array([73, 68])));
+  });
+  try {
+    expect((await new GitHubMusicStore("fake-token").read(71)).status).toBe(
+      200,
+    );
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
 
 it("uploads MP3 bytes, binds owner-only music, streams publicly with ranges, and expires and retries deletion", async () => {
@@ -237,6 +252,7 @@ it("uses GitHub Release binary APIs, strips credentials from CDN reads, and acce
   )!;
   expect(new Headers(cdn.init?.headers).has("Authorization")).toBe(false);
   expect(new Headers(cdn.init?.headers).get("Range")).toBe("bytes=0-1");
+  expect(cdn.init?.redirect).toBe("manual");
   await expect(store.remove(71)).resolves.toBeUndefined();
 });
 

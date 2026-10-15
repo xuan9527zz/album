@@ -6,12 +6,18 @@
 
 数据库新增 `album_audio_files`、仅 service_role 可执行的音乐管理和到期 RPC，以及 `album_v13_action`。创建/编辑影集时检查配乐归属和有效期，保留跨页取景、共享照片及公开链接规则。上传检查文件大小、扩展名和音频头；所有者列表和上传仍须有效成员登录。匿名播放仅允许精确 UUID 路径的 GET/HEAD，支持 iPhone 所需 Range/206/Content-Length；网关和 Worker 均不永久缓存音频。GitHub 授权不发给浏览器或媒体 CDN。
 
-正式第十三次迁移 `202610150004_temporary_music.sql` 已执行成功，编辑器内容与本地文件一致。正式网关已独立部署，Worker 当前版本 `21dce528-92d0-46bc-8d07-b1289a5dc279`，调用 v13 并启用每分钟音乐清理。`GITHUB_MUSIC_TOKEN` 已通过本地忽略文件配置到 Worker secret；凭据仅限 album 的 Contents 读写，用户设置有效期至 2027-01-13，需在失效前轮换。不要提交或打印凭据。
+正式第十三次迁移 `202610150004_temporary_music.sql` 已执行成功，编辑器内容与本地文件一致。正式网关已独立部署，Worker 当前版本 `961f62f8-7fd2-42fd-944d-b7b9225b62e3`，调用 v13 并启用每分钟音乐清理。`GITHUB_MUSIC_TOKEN` 已通过本地忽略文件配置到 Worker secret；凭据仅限 album 的 Contents 读写，用户设置有效期至 2027-01-13，需在失效前轮换。不要提交或打印凭据。
 
 观看页移除“查看文字与照片资料”，保留页码下拉跳转框。自动播放按作者设置的间隔从最后一个完整跨页循环回第一个，音乐持续播放；手动上一页/下一页也循环。跳转页码或切后台仍暂停播放。完整跨页按舞台实际剩余宽高缩放，不再用固定视口高度估算；短横屏压缩工具栏并保留安全区。
 
-本地验证：55 项数据库/API 测试通过；Chrome 桌面、手机及 WebKit 共 66 项浏览器测试通过（本次未启用的 HEIC 专项 3 项由 CI 执行）。覆盖实际 MP3 字节哈希、上传进度、匿名原生播放、时钟模拟过期、清理失败重试、分页孤立附件、横竖屏、循环翻页、页码跳转，以及所有模板 PDF。PWA 预装、升级和断网恢复检查通过。72 小时到期以模拟时钟和到期记录验证，未声称真实等待 72 小时；真实 iPhone 上传与旋转仍需设备验收。
+本地基础版本的 55 项数据库/API 测试及后续运行时回归专项通过；加入 fetch 接收者回归后共 56 项。Chrome 桌面、手机及 WebKit 共 66 项浏览器测试通过（本次未启用的 HEIC 专项 3 项由 CI 执行）。覆盖实际 MP3 字节哈希、上传进度、匿名原生播放、时钟模拟过期、清理失败重试、分页孤立附件、横竖屏、循环翻页、页码跳转，以及所有模板 PDF。PWA 预装、升级和断网恢复检查通过。72 小时到期以模拟时钟和到期记录验证，未声称真实等待 72 小时；真实 iPhone 上传与旋转仍需设备验收。
+
+前端从 `d27c2cc` 经 [Pages #33](https://github.com/xuan9527zz/album/actions/runs/38680331552) 发布。正式 PWA 已启用新版，核对用户“势不可当”的完整 1+2 跨页、无资料展开区、保留页码跳转；未改动该影集记录或创建公开链接。正式未保存草稿中上传既有 MP3，GitHub Release 附件大小为 9,970,460 字节，界面显示 72 小时截止时间，匿名 HEAD 200、Range 206、完整 GET 200 且 SHA256 一致；原生试听 readyState 4、时间持续前进。该上传会依正常 72 小时任务清理。
+
+正式验证发现并修复 Cloudflare 与 Node 的两处差异：全局 fetch 通过包装函数调用，避免错误的对象接收者；CDN 请求采用 Workers 支持的 manual 重定向模式，并在返回端校验 200/206/416，凭据仍不转发到 CDN。[Checks #58](https://github.com/xuan9527zz/album/actions/runs/38680517533) 已通过基础版本的完整流程；后续补丁只涉及后台运行时和专项回归，不改变 Pages #33 的前端产物。
 
 Worker 工作流新增凭据预检。缺少 `CLOUDFLARE_API_TOKEN` secret 或 `CLOUDFLARE_ACCOUNT_ID` variable 时，部署任务明确跳过并显示“Worker 未部署”，不会把跳过当成发布成功；本次正式 Worker 使用已登录的本机 Wrangler 发布。GitHub Actions 自动发布需要独立的 Cloudflare 部署凭据，和音乐 GitHub 凭据无关。
+
+[Worker #3](https://github.com/xuan9527zz/album/actions/runs/38680588080) 已验证预检成功、deploy 明确 skipped。Cloudflare 控制台曾有动态模块加载错误，刷新入口后恢复；已准备当前账户的 Workers Scripts:Edit 令牌摘要，有效至 2027-01-13，最终生成和保存到 GitHub 由用户亲自完成。该权限覆盖当前账户的 Workers，不限单个 Worker；尚未声称 GitHub 自动发布已配置。
 
 接口依据：[GitHub Release assets](https://docs.github.com/en/rest/releases/assets?apiVersion=2026-03-10)。

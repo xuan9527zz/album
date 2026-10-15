@@ -748,6 +748,12 @@ export function createHandler(d: Dependencies) {
       const [status, detail] = known
         ? publicErrors[known]
         : [503, "服务暂时不可用，请稍后重试"];
+      if (!known && new URL(request.url).pathname.startsWith("/v1/music"))
+        console.error("Music request failed", {
+          requestID,
+          name: error instanceof Error ? error.name : "Error",
+          message: message.slice(0, 180),
+        });
       return response(
         {
           error: { code: known || "SERVICE_UNAVAILABLE", message: detail },

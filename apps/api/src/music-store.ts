@@ -11,7 +11,7 @@ export class GitHubMusicStore implements MusicStore {
   private tag = "album-bgm";
   constructor(
     private token: string,
-    private upstream: typeof fetch = fetch,
+    private upstream: typeof fetch = (...args) => fetch(...args),
   ) {}
   private headers(accept = "application/vnd.github+json") {
     return {
@@ -116,7 +116,7 @@ export class GitHubMusicStore implements MusicStore {
     if (range) mediaHeaders.set("Range", range);
     return this.upstream(redirect.toString(), {
       headers: mediaHeaders,
-      redirect: "error",
+      redirect: "manual",
       signal: AbortSignal.timeout(180000),
     });
   }
