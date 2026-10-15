@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -350,7 +357,7 @@ export function ZinePlayer({
   renderPhoto: (photo: ZinePhoto) => ReactNode;
   prefetch?: (ids: Array<string | null>) => void;
   toolbar?: ReactNode;
-  audio?: { source: string; title: string };
+  audio?: { source: string; title: string; expiresAt?: string | null };
   legacyMusic?: ReactNode;
   publicView?: boolean;
 }) {
@@ -369,6 +376,17 @@ export function ZinePlayer({
   const pageIndex = index;
   const page = pages[pageIndex];
   const touch = useRef<{ x: number; y: number } | null>(null);
+  const stage = useRef<HTMLDivElement>(null);
+  const [spreadWidth, setSpreadWidth] = useState<number>();
+  useLayoutEffect(() => {
+    if (!stage.current) return;
+    const observer = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      setSpreadWidth(Math.max(0, Math.min(width, height * 1.5, 1440)));
+    });
+    observer.observe(stage.current);
+    return () => observer.disconnect();
+  }, []);
   const music = useRef<AudioControls>(null),
     playAttempt = useRef(0);
   const [starting, setStarting] = useState(false);
@@ -384,11 +402,6 @@ export function ZinePlayer({
       pausePlayback();
       return;
     }
-    if (index === steps - 1) {
-      setStep(0);
-      setPreviousStep(null);
-      music.current?.reset();
-    }
     const current = ++playAttempt.current;
     const promise = music.current?.play(); // Runs inside this click, before any await.
     setStarting(!!promise);
@@ -398,10 +411,12 @@ export function ZinePlayer({
     setPlaying(true);
   }
   function go(next: number) {
-    if (next < 0 || next >= steps || next === index) return;
+    if (!steps) return;
+    const target = ((next % steps) + steps) % steps;
+    if (target === index) return;
     setPreviousStep(index);
     setDirection(next > index ? "next" : "previous");
-    setStep(next);
+    setStep(target);
   }
   useEffect(() => {
     if (previousStep === null) return;
@@ -410,10 +425,7 @@ export function ZinePlayer({
   }, [step, previousStep]);
   useEffect(() => {
     if (!playing || steps < 2) return;
-    const timer = window.setTimeout(
-      () => (index === steps - 1 ? pausePlayback() : go(index + 1)),
-      seconds * 1000,
-    );
+    const timer = window.setTimeout(() => go(index + 1), seconds * 1000);
     return () => window.clearTimeout(timer);
   }, [playing, index, steps, seconds]);
   useEffect(() => {
@@ -424,7 +436,7 @@ export function ZinePlayer({
     return () => document.removeEventListener("visibilitychange", hide);
   }, []);
   useEffect(() => {
-    prefetch?.(pages[pageIndex + 1]?.photo_ids || []);
+    prefetch?.(pages[(pageIndex + 1) % steps]?.photo_ids || []);
   }, [pageIndex, story]);
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
@@ -444,7 +456,7 @@ export function ZinePlayer({
       }
       if (e.key === "Escape") location.hash = "/stories";
       if (e.code === "Space") {
-        if (steps < 2) return;
+        if (!steps) return;
         e.preventDefault();
         void togglePlayback();
       }
@@ -472,6 +484,7 @@ export function ZinePlayer({
       </header>
       <div
         className="zine-player-stage"
+        ref={stage}
         onTouchStart={(e) => {
           touch.current = {
             x: e.changedTouches[0].clientX,
@@ -501,6 +514,7 @@ export function ZinePlayer({
               return (
                 <div
                   key={framePage.id}
+                  style={{ width: spreadWidth }}
                   aria-hidden={leaving || undefined}
                   className={`zine-player-turn zine-slide-${leaving ? "out" : previousStep === null ? "still" : "in"} zine-effect-${story.transition} story-direction-${direction}`}
                 >
@@ -513,7 +527,7 @@ export function ZinePlayer({
                     view="spread"
                     renderPhoto={renderPhoto}
                     background={config.background_color}
-                    onReadOpen={pausePlayback}
+                    showDetails={false}
                   />
                 </div>
               );
@@ -525,7 +539,7 @@ export function ZinePlayer({
           type="button"
           className="story-player-arrow previous"
           aria-label="上一页"
-          disabled={!index}
+          disabled={steps < 2}
           onClick={() => go(index - 1)}
         >
           <ChevronLeft size={24} />
@@ -534,7 +548,7 @@ export function ZinePlayer({
           type="button"
           className="story-player-arrow next"
           aria-label="下一页"
-          disabled={index >= steps - 1}
+          disabled={steps < 2}
           onClick={() => go(index + 1)}
         >
           <ChevronRight size={24} />
@@ -544,7 +558,7 @@ export function ZinePlayer({
         <div className="story-player-controls">
           <button
             type="button"
-            disabled={steps < 2}
+            disabled={!steps}
             aria-label={playing || starting ? "暂停影集" : "播放影集"}
             onClick={() => void togglePlayback()}
           >
@@ -558,6 +572,8 @@ export function ZinePlayer({
             ref={music}
             source={audio.source}
             title={audio.title}
+            expiresAt={audio.expiresAt}
+            onExpired={pausePlayback}
             active={playing}
             onRetry={() => void togglePlayback()}
           />

@@ -6,13 +6,17 @@ import { localDatabase, demoUsers } from "./local-database";
 import { LocalStore } from "./local-store";
 import { createHandler, cleanUp } from "../apps/api/src/handler";
 import { localMusicTrial } from "./music-trial";
+import { LocalMusicStore } from "./local-music-store";
+import { cleanupMusic } from "../apps/api/src/music-handler";
 async function main() {
   const musicTrial = await localMusicTrial();
   const { sql, db } = await localDatabase();
   const store = new LocalStore();
+  const musicStore = new LocalMusicStore(900);
   const handler = createHandler({
     db,
     store,
+    musicStore,
     origins: ["http://127.0.0.1:5173"],
     uploadTTL: 600,
     readTTL: 300,
@@ -93,6 +97,11 @@ async function main() {
   const server = createServer(async (req, res) => {
     try {
       if (musicTrial(req, res)) return;
+      const expireMusic=req.url?.match(/^\/__test\/music-expire\/([0-9a-f-]{36})$/);
+      if(req.method === "POST"&&expireMusic){
+        await sql.query("update public.album_audio_files set expires_at=now()-interval '1 second' where id=$1",[expireMusic[1]]);
+        await cleanupMusic(db,musicStore);res.writeHead(204);res.end();return;
+      }
       // Each browser test starts with a fresh rate window; the demo API never runs in production.
       if (req.method === "POST" && req.url === "/__test/reset-request-limits") {
         await sql.exec("truncate public.request_limits");
@@ -135,6 +144,7 @@ async function main() {
   );
   const timer = setInterval(() => {
     cleanUp(db, store, false).catch(() => {});
+    cleanupMusic(db,musicStore).catch(()=>{});
   }, 60_000);
   const vite = spawn(
     process.execPath,

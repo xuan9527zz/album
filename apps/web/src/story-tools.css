@@ -731,3 +731,24 @@
     right: 3px;
   }
 }
+.music-upload {display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0;} .music-upload small{color:#738071;} .music-upload [role="status"]{flex-basis:100%;display:flex;align-items:center;gap:12px;font-size:13px;} .music-upload progress{height:8px;min-width:80px;flex:1;accent-color:#507059;} .music-upload [role="alert"]{flex-basis:100%;margin:0;}
+.music-upload input[type=file] {display:none;}
+
+/* Fit each complete spread to the space left by the actual controls. */
+.zine-book-player { height:100dvh; overflow:hidden; }
+.zine-book-player .zine-player-stage { overflow:hidden; align-content:center; align-items:center; }
+.zine-book-player .zine-player-turn .zine-frame { max-width:100%; }
+.zine-book-player .story-player-footer { flex-shrink:0; }
+@media (orientation:landscape) and (max-height:600px) {
+  .zine-book-player .story-player-header { height:52px; min-height:52px; flex-wrap:nowrap; padding:4px max(14px,env(safe-area-inset-right)) 4px max(14px,env(safe-area-inset-left)); }
+  .zine-book-player .story-player-header > span { min-width:0; flex:1; }
+  .zine-book-player .story-player-footer { display:flex; flex-wrap:nowrap; min-height:52px; height:auto; gap:12px; padding:5px max(14px,env(safe-area-inset-right)) max(5px,env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-left)); }
+  .zine-book-player .story-player-footer .album-audio { flex:1; justify-content:center; min-width:0; }
+  .zine-book-player .album-audio-title span { max-width:120px; }
+  .zine-book-player .story-player-controls { width:auto; flex-shrink:0; }
+  .zine-book-player .zine-page-select { width:98px; margin-left:auto; flex-shrink:0; }
+  .zine-book-player .story-player-count { white-space:nowrap; font-size:12px; }
+  .zine-book-player .zine-player-stage { padding:8px max(52px,env(safe-area-inset-right)) 8px max(52px,env(safe-area-inset-left)); }
+  .zine-book-player .story-player-arrow.previous { left:max(6px,env(safe-area-inset-left)); }
+  .zine-book-player .story-player-arrow.next { right:max(6px,env(safe-area-inset-right)); }
+}

@@ -2,10 +2,14 @@ import { z } from "zod";
 import { audioTrack, audioTracks } from "./audio-tracks";
 
 export const trackIdPattern = /^[1-9][0-9]{0,19}$/;
+export const fileIdPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+export const musicGateway =
+  "https://nqjdngemhgmahqjuuxwx.supabase.co/functions/v1/album-gateway";
 export const musicInputSchema = z
   .object({
     provider: z.enum(["netease", "qq", "file"]),
-    provider_track_id: z.string().max(20),
+    provider_track_id: z.string().max(36),
     enabled: z.boolean(),
     title: z.string().trim().max(100).nullable(),
     artist: z.string().trim().max(100).nullable(),
@@ -15,12 +19,17 @@ export const musicInputSchema = z
   .refine(
     (music) =>
       music.provider === "file"
-        ? !!audioTrack(music.provider_track_id)
+        ? !!audioTrack(music.provider_track_id) ||
+          fileIdPattern.test(music.provider_track_id)
         : trackIdPattern.test(music.provider_track_id),
     { message: "配乐不存在" },
   );
 export type MusicInput = z.infer<typeof musicInputSchema>;
-export type MusicConfig = MusicInput & { source_url: string };
+export type MusicConfig = MusicInput & {
+  source_url: string;
+  expires_at?: string | null;
+  expired?: boolean;
+};
 export const musicProviderName = {
   netease: "网易云音乐",
   qq: "QQ 音乐",
@@ -29,6 +38,8 @@ export const musicProviderName = {
 export function musicSource(provider: MusicInput["provider"], id: string) {
   if (provider === "file") {
     const track = audioTrack(id);
+    if (!track && fileIdPattern.test(id))
+      return `${musicGateway}/v1/music/${id}/stream`;
     if (!track) throw new Error("配乐不存在");
     return track.url;
   }
@@ -90,6 +101,19 @@ export function parseMusicUrl(input: string): ParsedMusic {
     return fail("INVALID_URL", "请粘贴完整的 HTTPS 单曲链接。");
   }
   const file = audioTracks.find((track) => track.url === url.href);
+  const uploaded =
+    url.origin === new URL(musicGateway).origin && !url.search && !url.hash
+      ? url.pathname.match(
+          /^\/functions\/v1\/album-gateway\/v1\/music\/([0-9a-f-]{36})\/stream$/,
+        )
+      : null;
+  if (uploaded && fileIdPattern.test(uploaded[1]))
+    return {
+      ok: true,
+      provider: "file",
+      provider_track_id: uploaded[1],
+      source_url: url.href,
+    };
   if (file)
     return {
       ok: true,

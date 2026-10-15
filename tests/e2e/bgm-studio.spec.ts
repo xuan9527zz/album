@@ -83,12 +83,16 @@ test("studio saves BGM and interval and anonymous guests play both with one tap"
     await viewer.locator("audio").evaluate((a: HTMLAudioElement) => a.paused),
   ).toBe(false);
   await viewer.clock.fastForward(4000);
+  await expect(viewer.locator(".story-player-count")).toContainText("01 /");
   await expect(
-    viewer.getByRole("button", { name: "播放影集", exact: true }),
+    viewer.getByRole("button", { name: "暂停影集", exact: true }),
   ).toBeVisible();
   expect(
     await viewer.locator("audio").evaluate((a: HTMLAudioElement) => a.paused),
-  ).toBe(true);
+  ).toBe(false);
+  await viewer.getByRole("button", { name: "暂停影集", exact: true }).click();
+  await viewer.getByLabel("影集页码", { exact: true }).selectOption("1");
+  await expect(viewer.locator(".story-player-count")).toContainText("02 /");
   await viewer.screenshot({
     path: `.local/bgm-public-${info.project.name}.png`,
   });
@@ -101,5 +105,7 @@ test("studio saves BGM and interval and anonymous guests play both with one tap"
   await expect(page.getByLabel("配乐", { exact: true })).toHaveValue(
     "whenever",
   );
-  expect((await request.delete(`${api}/v1/stories/${id}`, { headers })).ok()).toBe(true);
+  expect(
+    (await request.delete(`${api}/v1/stories/${id}`, { headers })).ok(),
+  ).toBe(true);
 });

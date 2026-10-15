@@ -10,6 +10,10 @@ if (
 )
   sessionStorage.setItem(inviteMarker, "1");
 const config = import.meta.env;
+export const apiBase = () =>
+  localDemo
+    ? "http://127.0.0.1:8788"
+    : config.VITE_API_BASE_URL.replace(/\/$/, "");
 export const configured =
   localDemo ||
   !!(
@@ -90,6 +94,74 @@ export class Client {
         r.status,
       );
     return data;
+  }
+  async uploadMusic(
+    file: File,
+    progress: (percent: number) => void,
+    saving: () => void,
+    signal?: AbortSignal,
+  ): Promise<{
+    id: string;
+    title: string;
+    size_bytes: number;
+    expires_at: string;
+    expired: boolean;
+  }> {
+    const token = await this.token();
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      const abort = () => xhr.abort();
+      const clear = () => {
+        this.controller.signal.removeEventListener("abort", abort);
+        signal?.removeEventListener("abort", abort);
+      };
+      xhr.open("POST", `${apiBase()}/v1/music/uploads`);
+      xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+      xhr.timeout = 300000;
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable)
+          progress(
+            Math.min(99, Math.floor((event.loaded / event.total) * 100)),
+          );
+      };
+      xhr.upload.onload = saving;
+      xhr.onload = () => {
+        clear();
+        try {
+          const result = JSON.parse(xhr.responseText);
+          if (xhr.status < 200 || xhr.status >= 300)
+            throw new RequestError(
+              result.error?.message || "MP3 上传失败",
+              xhr.status,
+            );
+          progress(100);
+          resolve(result);
+        } catch (error) {
+          reject(error);
+        }
+      };
+      xhr.onerror = () => {
+        clear();
+        reject(new Error("上传连接中断，请重试"));
+      };
+      xhr.ontimeout = () => {
+        clear();
+        reject(new Error("MP3 上传超时，请重试"));
+      };
+      xhr.onabort = () => {
+        clear();
+        reject(new DOMException("已取消上传", "AbortError"));
+      };
+      if (this.controller.signal.aborted || signal?.aborted) {
+        reject(new DOMException("已取消上传", "AbortError"));
+        return;
+      }
+      this.controller.signal.addEventListener("abort", abort, { once: true });
+      signal?.addEventListener("abort", abort, { once: true });
+      const body = new FormData();
+      body.set("file", file);
+      xhr.send(body);
+    });
   }
   stop() {
     this.controller.abort();

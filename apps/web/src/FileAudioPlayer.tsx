@@ -28,9 +28,19 @@ export const FileAudioPlayer = forwardRef<
     active?: boolean;
     standalone?: boolean;
     onRetry?: () => void;
+    expiresAt?: string | null;
+    onExpired?: () => void;
   }
 >(function FileAudioPlayer(
-  { source, title = "配乐", active = false, standalone = false, onRetry },
+  {
+    source,
+    title = "配乐",
+    active = false,
+    standalone = false,
+    onRetry,
+    expiresAt,
+    onExpired,
+  },
   ref,
 ) {
   const media = useRef<HTMLAudioElement>(null);
@@ -42,6 +52,35 @@ export const FileAudioPlayer = forwardRef<
     [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false),
     [error, setError] = useState("");
+  const expired = useRef(false),
+    expiryNotice = useRef(onExpired);
+  expiryNotice.current = onExpired;
+  useEffect(() => {
+    expired.current = false;
+    if (!expiresAt) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expire = () => {
+      if (expired.current) return;
+      expired.current = true;
+      pause();
+      media.current?.removeAttribute("src");
+      media.current?.load();
+      setError("配乐已过期");
+      expiryNotice.current?.();
+    };
+    const check = () => {
+      clearTimeout(timer);
+      const remaining = new Date(expiresAt).getTime() - Date.now();
+      if (remaining <= 0) expire();
+      else timer = setTimeout(expire, remaining);
+    };
+    check();
+    document.addEventListener("visibilitychange", check);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", check);
+    };
+  }, [expiresAt]);
   const clear = () => {
     clearTimeout(timeout.current);
     pending.current = false;
@@ -66,6 +105,10 @@ export const FileAudioPlayer = forwardRef<
   async function play() {
     const audio = media.current;
     if (!audio) return false;
+    if (expired.current) {
+      setError("配乐已过期");
+      return false;
+    }
     if (audio.muted) return true;
     const current = ++attempt.current;
     setError("");
@@ -92,7 +135,7 @@ export const FileAudioPlayer = forwardRef<
     pause,
     reset() {
       pause();
-      if (media.current) media.current.currentTime = 0;
+      if (media.current?.readyState) media.current.currentTime = 0;
     },
   }));
   useEffect(() => {
@@ -144,22 +187,28 @@ export const FileAudioPlayer = forwardRef<
       {error && (
         <span className="album-audio-error" role="alert">
           {error}
-          <button
-            type="button"
-            aria-label="重试配乐"
-            onClick={() => (active || !onRetry ? void play() : onRetry())}
-          >
-            <RefreshCw size={15} />
-          </button>
+          {!expired.current && (
+            <button
+              type="button"
+              aria-label="重试配乐"
+              onClick={() => (active || !onRetry ? void play() : onRetry())}
+            >
+              <RefreshCw size={15} />
+            </button>
+          )}
         </span>
       )}
       <audio
         ref={media}
-        src={source}
+        src={expired.current ? undefined : source}
         preload="auto"
         loop
         muted={muted}
         onPlaying={() => {
+          if (expired.current) {
+            media.current?.pause();
+            return;
+          }
           clear();
           setPlaying(true);
           setError("");
@@ -185,6 +234,7 @@ export const FileAudioPlayer = forwardRef<
           }
         }}
         onError={() => {
+          if (expired.current) return;
           clear();
           setError("配乐暂时无法播放");
         }}

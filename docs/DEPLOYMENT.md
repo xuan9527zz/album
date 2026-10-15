@@ -1,6 +1,6 @@
 # 从零部署
 
-独立 Supabase `album` 项目已按顺序执行十次迁移，最新为 `202610150001_story_playback.sql`，并关闭公众注册和匿名登录。Cloudflare `family-album` 私有桶已设置 CORS。四位成员均已建立，邀请邮件已发送；真实设备验收仍待完成。新版发布记录见下方，不复用其他网站的账号或数据库。不要把真实密钥提交到 Git 或聊天记录。
+独立 Supabase `album` 项目已按顺序执行十三次迁移，最新为 `202610150004_temporary_music.sql`，并关闭公众注册和匿名登录。Cloudflare `family-album` 私有桶已设置 CORS。四位成员均已建立，邀请邮件已发送；真实设备验收仍待完成。最新 Worker、网关及临时 MP3 说明见 [上传配乐发布记录](TEMPORARY_MUSIC_RELEASE.md)，完整跨页和共享照片见 [取景发布记录](ZINE_FRAMING_RELEASE.md)。下文保留历次部署记录，不复用其他网站的账号或数据库。不要把真实密钥提交到 Git 或聊天记录。
 
 ## 1. Supabase
 

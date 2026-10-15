@@ -111,6 +111,7 @@ export function ZineSpread({
   view = "spread",
   renderPhoto,
   onReadOpen,
+  showDetails = true,
   background,
   onPhotoCrop,
 }: {
@@ -122,6 +123,7 @@ export function ZineSpread({
   view?: "spread" | "left" | "right";
   renderPhoto?: (photo: ZinePhoto) => ReactNode;
   onReadOpen?: () => void;
+  showDetails?: boolean;
   background?: string;
   onPhotoCrop?: (slot: number, crop: ZineCrop) => void;
 }) {
@@ -244,33 +246,35 @@ export function ZineSpread({
           })}
         </article>
       </div>
-      <details
-        className="zine-reading-text"
-        onToggle={(event) => {
-          if (event.currentTarget.open) onReadOpen?.();
-        }}
-      >
-        <summary>查看文字与照片资料</summary>
-        {page.photo_ids.map((id, slot) => {
-          const photo = id ? lookup.get(id) : undefined;
-          return photo ? (
-            <div key={`${slot}-${id}`}>
-              <strong>{photo.title || "未命名照片"}</strong>
-              <p>{photo.location_label}</p>
-              <p>{photo.captured_local?.replace("T", " ")}</p>
-            </div>
-          ) : null;
-        })}
-        {layout.fields.map((field) => {
-          const value = page.texts[field.key] ?? field.default;
-          return value ? (
-            <div key={field.key}>
-              <strong>{field.label}</strong>
-              <p>{value}</p>
-            </div>
-          ) : null;
-        })}
-      </details>
+      {showDetails && (
+        <details
+          className="zine-reading-text"
+          onToggle={(event) => {
+            if (event.currentTarget.open) onReadOpen?.();
+          }}
+        >
+          <summary>查看文字与照片资料</summary>
+          {page.photo_ids.map((id, slot) => {
+            const photo = id ? lookup.get(id) : undefined;
+            return photo ? (
+              <div key={`${slot}-${id}`}>
+                <strong>{photo.title || "未命名照片"}</strong>
+                <p>{photo.location_label}</p>
+                <p>{photo.captured_local?.replace("T", " ")}</p>
+              </div>
+            ) : null;
+          })}
+          {layout.fields.map((field) => {
+            const value = page.texts[field.key] ?? field.default;
+            return value ? (
+              <div key={field.key}>
+                <strong>{field.label}</strong>
+                <p>{value}</p>
+              </div>
+            ) : null;
+          })}
+        </details>
+      )}
     </div>
   );
 }

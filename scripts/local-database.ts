@@ -85,6 +85,7 @@ export async function localDatabase(): Promise<{ sql: PGlite; db: DB }> {
   await sql.exec(await readFile(new URL("../supabase/migrations/202610150001_story_playback.sql", import.meta.url), "utf8"));
   await sql.exec(await readFile(new URL("../supabase/migrations/202610150002_story_photo_crops.sql", import.meta.url), "utf8"));
   await sql.exec(await readFile(new URL("../supabase/migrations/202610150003_shared_story_links.sql", import.meta.url), "utf8"));
+  await sql.exec(await readFile(new URL("../supabase/migrations/202610150004_temporary_music.sql", import.meta.url), "utf8"));
   for (const [index, user] of demoUsers.entries()) {
     await sql.query("insert into auth.users values($1)", [user]);
     await sql.query(
@@ -106,6 +107,8 @@ export async function localDatabase(): Promise<{ sql: PGlite; db: DB }> {
           "album_v8_action",
           "album_v10_action",
           "album_v11_action",
+          "album_v13_action",
+          "album_music_action",
           "album_story_public",
           "album_named_upload",
           "album_maintenance",
@@ -117,7 +120,7 @@ export async function localDatabase(): Promise<{ sql: PGlite; db: DB }> {
       const r = await sql.query<{ result: any }>(
         `select public.${name}(${keys.map((k, i) => `${k}=>$${i + 1}`).join(",")}) as result`,
         Object.values(args).map((v) =>
-          typeof v === "object" ? JSON.stringify(v) : v,
+          v !== null && typeof v === "object" ? JSON.stringify(v) : v,
         ),
       );
       return r.rows[0].result;

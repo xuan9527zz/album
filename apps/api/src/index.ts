@@ -6,6 +6,8 @@ import type {
 } from "@cloudflare/workers-types";
 import { createHandler, cleanUp, type DB } from "./handler";
 import { R2Store } from "./storage";
+import { GitHubMusicStore } from "./music-store";
+import { cleanupMusic } from "./music-handler";
 export interface Env {
   SUPABASE_URL: string;
   SUPABASE_PUBLISHABLE_KEY: string;
@@ -20,6 +22,7 @@ export interface Env {
   VAPID_SUBJECT?: string;
   UPLOAD_TTL_SECONDS: string;
   READ_TTL_SECONDS: string;
+  GITHUB_MUSIC_TOKEN?: string;
 }
 export function productionDependencies(env: Env, ctx?: ExecutionContext) {
   const admin = createClient(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY, {
@@ -40,6 +43,7 @@ export function productionDependencies(env: Env, ctx?: ExecutionContext) {
   return {
     db,
     store: new R2Store(env),
+    musicStore: env.GITHUB_MUSIC_TOKEN ? new GitHubMusicStore(env.GITHUB_MUSIC_TOKEN) : undefined,
     origins: env.ALLOWED_ORIGINS.split(",").map((s) => s.trim()),
     uploadTTL: Math.min(Number(env.UPLOAD_TTL_SECONDS) || 600, 900),
     readTTL: Math.min(Number(env.READ_TTL_SECONDS) || 300, 300),
@@ -113,11 +117,12 @@ export default {
     return createHandler(productionDependencies(env, ctx))(request);
   },
   async scheduled(
-    _event: ScheduledController,
+    event: ScheduledController,
     env: Env,
     ctx: ExecutionContext,
   ) {
     const d = productionDependencies(env);
-    ctx.waitUntil(cleanUp(d.db, d.store, false).then(() => undefined));
+    if(event.cron === "17 */6 * * *")ctx.waitUntil(cleanUp(d.db, d.store, false).then(() => undefined));
+    if(d.musicStore)ctx.waitUntil(cleanupMusic(d.db,d.musicStore).then(() => undefined));
   },
 };

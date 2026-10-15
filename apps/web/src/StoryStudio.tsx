@@ -15,7 +15,7 @@ import {
   X,
 } from "lucide-react";
 import type { Photo } from "../../../packages/shared/src/index";
-import { Client, localDemo, publicRequest, RequestError } from "./client";
+import { Client, localDemo, publicRequest, RequestError, apiBase } from "./client";
 import { cachedImage, imageInSession } from "./session-image-cache";
 import {
   getZineCollection,
@@ -315,7 +315,8 @@ function StoryEditor({
         if (story.music)
           setMusicDraft({
             url: story.music.source_url,
-            enabled: story.music.enabled,
+            enabled: story.music.enabled && !story.music.expired,
+            expiresAt: story.music.expires_at,
             title: story.music.title || "",
             artist: story.music.artist || "",
           });
@@ -708,7 +709,7 @@ function StoryEditor({
             />
           )}
           {panel === "music" && (
-            <MusicSettings draft={musicDraft} onChange={setMusicDraft} />
+            <MusicSettings draft={musicDraft} onChange={setMusicDraft} client={client} />
           )}
         </div>
         <aside className="story-work-side" data-panel={panel}>
@@ -1009,7 +1010,7 @@ function StoryReader({
       }
       audio={import.meta.env.DEV && localDemo && new URLSearchParams(location.search).has("musicTrial")
         ? { source: `/__music-trial/audio${new URLSearchParams(location.search).get("musicTrial") === "stall" ? `?hold=${story.id}` : new URLSearchParams(location.search).get("musicTrial") === "failure" ? `?failure=${story.id}` : new URLSearchParams(location.search).get("musicTrial") === "invalid" ? "?invalid=1" : ""}`, title: "配乐试播" }
-        : story.music?.enabled && story.music.provider === "file" ? { source: `${import.meta.env.BASE_URL}music/${story.music.provider_track_id}.mp3`, title: story.music.title || "Whenever" } : undefined}
+        : story.music?.enabled && story.music.provider === "file" ? { source: story.music.provider_track_id === "whenever" ? `${import.meta.env.BASE_URL}music/whenever.mp3` : `${apiBase()}/v1/music/${story.music.provider_track_id}/stream`, title: story.music.title || "配乐", expiresAt:story.music.expires_at } : undefined}
       legacyMusic={story.music?.enabled && story.music.provider !== "file" ? <MusicHost storyID={story.id} music={story.music} /> : undefined}
       renderPhoto={(photo) => (
         <StoryImage

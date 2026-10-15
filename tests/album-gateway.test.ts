@@ -5,6 +5,59 @@ const base = "https://example.supabase.co/functions/v1/album-gateway";
 const origin = "https://xuan9527zz.github.io";
 
 describe("album gateway", () => {
+  it("preserves anonymous MP3 range and HEAD responses while keeping catalog and upload private", async () => {
+    const path = `${base}/v1/music/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/stream`;
+    const upstream = vi.fn(async (_url: string, init: RequestInit) => {
+      expect(new Headers(init.headers).get("Range")).toBe("bytes=0-1");
+      return new Response(
+        init.method === "HEAD" ? null : new Uint8Array([73, 68]),
+        {
+          status: 206,
+          headers: {
+            "Content-Type": "audio/mpeg",
+            "Content-Length": "2",
+            "Content-Range": "bytes 0-1/256",
+            "Accept-Ranges": "bytes",
+          },
+        },
+      );
+    });
+    for (const method of ["GET", "HEAD"]) {
+      const response = await handleAlbumGateway(
+        new Request(path, {
+          method,
+          headers: { Origin: origin, Range: "bytes=0-1" },
+        }),
+        upstream,
+      );
+      expect(response.status).toBe(206);
+      expect(response.headers.get("Content-Length")).toBe("2");
+      expect(response.headers.get("Content-Range")).toBe("bytes 0-1/256");
+      expect(response.headers.get("Access-Control-Expose-Headers")).toContain(
+        "Content-Range",
+      );
+      expect((await response.arrayBuffer()).byteLength).toBe(
+        method === "HEAD" ? 0 : 2,
+      );
+    }
+    for (const url of [
+      `${base}/v1/music`,
+      `${base}/v1/music/uploads`,
+      path.replace("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "guess"),
+    ])
+      expect(
+        (await handleAlbumGateway(new Request(url), upstream)).status,
+      ).toBe(401);
+    expect(
+      (
+        await handleAlbumGateway(
+          new Request(path, { method: "POST" }),
+          upstream,
+        )
+      ).status,
+    ).toBe(401);
+    expect(upstream).toHaveBeenCalledTimes(2);
+  });
   it("allows anonymous token-protected story GET only while keeping writes authenticated", async () => {
     const upstream = vi.fn(async () => Response.json({ title: "影集" }));
     const path = `${base}/v1/public/stories/${"a".repeat(64)}`;

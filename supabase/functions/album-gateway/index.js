@@ -6,9 +6,9 @@ const R2_ORIGIN = "https://65720088c3fb824c33ca1373a9f34f79.r2.cloudflarestorage
 const R2_BUCKET_PATH = "/family-album/";
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
-  "Access-Control-Allow-Methods": "GET,PUT,POST,PATCH,DELETE,OPTIONS",
+  "Access-Control-Allow-Methods": "GET,HEAD,PUT,POST,PATCH,DELETE,OPTIONS",
   "Access-Control-Allow-Headers": "Authorization,Content-Type,Content-MD5,If-None-Match,Cache-Control,Idempotency-Key,Range",
-  "Access-Control-Expose-Headers": "Content-Disposition,Content-Length,Content-Range",
+  "Access-Control-Expose-Headers": "Content-Disposition,Content-Length,Content-Range,Accept-Ranges",
   "Access-Control-Max-Age": "600",
   Vary: "Origin",
 };
@@ -86,12 +86,12 @@ export async function handleAlbumGateway(request, upstreamFetch = fetch) {
   }
   if (path !== "/health" && !path.startsWith("/v1/"))
     return Response.json({ error: { code: "NOT_FOUND" } }, { status: 404, headers: cors });
-  const publicRead = request.method === "GET" && /^\/v1\/public\/stories\/[0-9a-f]{64}$/.test(path);
+  const publicRead = (request.method === "GET" && /^\/v1\/public\/stories\/[0-9a-f]{64}$/.test(path)) || (["GET","HEAD"].includes(request.method) && /^\/v1\/music\/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/stream$/.test(path));
   if (path !== "/health" && !publicRead && !request.headers.get("Authorization")?.startsWith("Bearer "))
     return Response.json({ error: { code: "UNAUTHENTICATED" } }, { status: 401, headers: cors });
 
   const headers = new Headers();
-  for (const name of ["Authorization", "Content-Type", "Idempotency-Key", "Origin"])
+  for (const name of ["Authorization", "Content-Type", "Idempotency-Key", "Origin", "Range"])
     if (request.headers.has(name)) headers.set(name, request.headers.get(name));
   const target = `${WORKER_ORIGIN}${path}${url.search}`;
   try {
@@ -102,13 +102,14 @@ export async function handleAlbumGateway(request, upstreamFetch = fetch) {
       redirect: "manual",
     });
     const responseHeaders = new Headers(cors);
-    for (const name of ["Content-Type", "Content-Disposition", "X-Content-Type-Options"])
+    for (const name of ["Content-Type", "Content-Disposition", "X-Content-Type-Options", "Content-Length", "Content-Range", "Accept-Ranges"])
       if (upstream.headers.has(name)) responseHeaders.set(name, upstream.headers.get(name));
     responseHeaders.set("Cache-Control", "no-store");
     const contentType = upstream.headers.get("Content-Type") || "";
     const body = upstream.ok && contentType.includes("application/json")
       ? JSON.stringify(replaceSignedURLs(await upstream.json()))
       : upstream.body;
+    if(upstream.ok && contentType.includes("application/json"))responseHeaders.delete("Content-Length");
     return new Response(body, {
       status: upstream.status,
       headers: responseHeaders,

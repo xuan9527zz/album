@@ -7,6 +7,8 @@ import {
 import { md5Hex, sniff, type ObjectStore } from "./storage";
 import { storyBodySchema } from "../../../packages/zine/src/schema";
 import { photoFilename } from "../../../packages/shared/src/photo-filename";
+import type { MusicStore } from "./music-store";
+import { musicManage, musicStream } from "./music-handler";
 export interface DB {
   call(name: string, args: Record<string, unknown>): Promise<any>;
 }
@@ -17,6 +19,7 @@ export interface Dependencies {
   origins: string[];
   uploadTTL: number;
   readTTL: number;
+  musicStore?: MusicStore;
   vapidPublicKey?: string;
   push?: (
     deliveries: Array<{
@@ -49,6 +52,11 @@ const publicErrors: Record<string, [number, string]> = {
   STORY_LIMIT: [409, "影集最多保存 50 本"],
   PUBLIC_OWN_PHOTOS_ONLY: [409, "公开观看链接只能包含你自己的照片"],
   PUBLIC_PHOTOS_UNAVAILABLE: [409, "照片已删除或撤回共享，请调整影集后重试"],
+  MUSIC_EXPIRED: [410, "配乐已过期，请重新上传 MP3"],
+  MUSIC_CONFIGURATION_REQUIRED: [503, "MP3 上传暂未开通"],
+  MUSIC_STORAGE_UNAVAILABLE: [503, "配乐保存服务暂时不可用，请稍后重试"],
+  MUSIC_TOO_LARGE: [413, "MP3 最大支持 20 MB"],
+  MUSIC_LIMIT: [429, "最多保留 8 首有效配乐，请过期后再上传"],
 };
 class APIError extends Error {
   constructor(
@@ -107,9 +115,9 @@ export function createHandler(d: Dependencies) {
         status: 204,
         headers: {
           ...cors,
-          "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,OPTIONS",
+          "Access-Control-Allow-Methods": "GET,HEAD,POST,PATCH,DELETE,OPTIONS",
           "Access-Control-Allow-Headers":
-            "Authorization,Content-Type,Idempotency-Key",
+            "Authorization,Content-Type,Idempotency-Key,Range",
           "Access-Control-Max-Age": "600",
         },
       });
@@ -118,6 +126,16 @@ export function createHandler(d: Dependencies) {
       const path = url.pathname;
       if (path === "/health" && request.method === "GET")
         return response({ status: "ok" });
+      const audioStream = await musicStream(request, d.db, d.musicStore);
+      if (audioStream) {
+        for (const [key, value] of Object.entries(cors))
+          audioStream.headers.set(key, value);
+        audioStream.headers.set(
+          "Access-Control-Expose-Headers",
+          "Content-Length,Content-Range,Accept-Ranges",
+        );
+        return audioStream;
+      }
       const publicStory = path.match(/^\/v1\/public\/stories\/([0-9a-f]{64})$/);
       if (publicStory && request.method === "GET") {
         const digest = await crypto.subtle.digest(
@@ -147,6 +165,13 @@ export function createHandler(d: Dependencies) {
       const owner = bearer ? await d.authenticate(bearer) : null;
       if (!owner)
         throw new APIError("UNAUTHENTICATED", 401, "登录已过期，请重新登录");
+      const musicResult = await musicManage(request, d.db, owner, d.musicStore);
+      if (musicResult) {
+        for (const [key, value] of Object.entries(cors))
+          musicResult.headers.set(key, value);
+        musicResult.headers.set("Cache-Control", "no-store");
+        return musicResult;
+      }
       const call = (action: string, data: unknown = {}) =>
         d.db.call("album_action", {
           p_owner: owner,
@@ -178,7 +203,7 @@ export function createHandler(d: Dependencies) {
           p_data: data,
         });
       const callV8 = (action: string, data: unknown = {}) =>
-        d.db.call("album_v11_action", {
+        d.db.call("album_v13_action", {
           p_owner: owner,
           p_action: action,
           p_data: data,
@@ -549,13 +574,14 @@ export function createHandler(d: Dependencies) {
             .parse((await readJSON(request)).role || "original_image");
           const object = await callV3("download", { photo_id: photoID, role });
           const photo = await callV2("photo", { photo_id: photoID });
-          const filename = photoFilename(photo.owner_name, photoID, object.mime, object.filename);
+          const filename = photoFilename(
+            photo.owner_name,
+            photoID,
+            object.mime,
+            object.filename,
+          );
           return response({
-            url: await d.store.grantGet(
-              object.object_key,
-              d.readTTL,
-              filename,
-            ),
+            url: await d.store.grantGet(object.object_key, d.readTTL, filename),
             filename,
             expires_in: d.readTTL,
           });
@@ -608,7 +634,8 @@ export function createHandler(d: Dependencies) {
           n.toString(16).padStart(2, "0"),
         ).join("");
         const s = await d.db.call("album_named_upload", {
-          p_owner: owner, p_action: photoMatch ? "supplement" : "init",
+          p_owner: owner,
+          p_action: photoMatch ? "supplement" : "init",
           p_data: { ...data, key, digest },
         });
         return response(
