@@ -33,6 +33,7 @@ import {
   formatBytes,
 } from "../../../packages/shared/src/index";
 import { auth, Client, configured, inviteMarker, localDemo } from "./client";
+import { loginErrorText } from "./login-error";
 import { cachedImage, clearImageCache, imageInSession } from "./session-image-cache";
 import { fileMime, metadata as readPhotoMetadata } from "./files";
 import { usePwaCacheStatus, requestPwaPreload } from "./pwa-cache-status";
@@ -96,10 +97,10 @@ function Login({ onLocal }: { onLocal: (id: string) => void }) {
     setBusy(true);
     setError("");
     try {
-      const r = await auth!.auth.signInWithPassword({ email, password });
-      if (r.error) throw new Error("登录失败，请检查邮箱和密码或稍后重试");
+      const r = await auth!.auth.signInWithPassword({ email: email.trim(), password });
+      if (r.error) throw r.error;
     } catch (e) {
-      setError(errorText(e));
+      setError(loginErrorText(e));
     } finally {
       setBusy(false);
     }
