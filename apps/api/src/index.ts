@@ -8,6 +8,7 @@ import { createHandler, cleanUp, type DB } from "./handler";
 import { R2Store } from "./storage";
 import { GitHubMusicStore } from "./music-store";
 import { cleanupMusic } from "./music-handler";
+import { healthResponse, relayAuth } from "./auth-relay";
 export interface Env {
   SUPABASE_URL: string;
   SUPABASE_PUBLISHABLE_KEY: string;
@@ -89,10 +90,7 @@ export function productionDependencies(env: Env, ctx?: ExecutionContext) {
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     if (new URL(request.url).pathname === "/health")
-      return Response.json(
-        { status: "ok" },
-        { headers: { "Cache-Control": "no-store" } },
-      );
+      return healthResponse(request, env.ALLOWED_ORIGINS || "");
     const keys = [
       "SUPABASE_URL",
       "SUPABASE_PUBLISHABLE_KEY",
@@ -114,6 +112,8 @@ export default {
         },
         { status: 503, headers: { "Cache-Control": "no-store" } },
       );
+    const authResponse = await relayAuth(request, env);
+    if (authResponse) return authResponse;
     return createHandler(productionDependencies(env, ctx))(request);
   },
   async scheduled(
