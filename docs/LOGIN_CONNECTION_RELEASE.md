@@ -12,4 +12,8 @@ Worker 只转发白名单内的公开 Auth API，使用 publishable key，绝不
 
 本地验证：74 项单元/数据库/API 测试通过；实际登录表单与 SDK 在 Chrome/WebKit 的六种连接模拟下通过，包括备用登录后刷新保留会话、密码错误不换线路、两条线路均失败的提示。三种浏览器的连接检查界面与重试通过，既有相册流程 15 项通过；本次未启用的三项 HEIC 专项不计为已通过。PWA 预装、更新和恢复检查保持通过。`npm run test:login` 已加入 CI，使用合成凭据和独立测试服务器。
 
-线上发布和真实 iPhone 结果待后续核对。此改动无需数据库迁移。
+正式发布：代码 `5c7ba1d` 经 [Worker #5](https://github.com/xuan9527zz/album/actions/runs/38719941295) 与 [Pages #35](https://github.com/xuan9527zz/album/actions/runs/38720189012) 发布成功。Worker 当前版本为 `f835fbb1-6f48-4600-98f3-a0d5ee7ee5f7`；[Checks](https://github.com/xuan9527zz/album/actions/runs/38719856337) 全部成功，包含启用 HEIC/WebKit 的 72 项浏览器测试、六项实际登录表单连接模拟及 PWA 检查。
+
+线上核对：健康/CORS 200、Auth 预检 204、公开 JWKS 200，空请求体返回 400 `validation_failed` 且保留 API 版本（未提交任何账号或密码）。管理接口转发 404，匿名照片 401。合成 245,219 字节 PNG 经 Worker 签名 PUT/GET 的 SHA256 一致，测试对象已清理并确认不存在。正式网站更新后四项连接检查在本机均为 HTTP 200，网页入口包含备用传输代码。
+
+真实失败 iPhone 的新版登录结果仍待用户验证；本机连通不代表该设备连通。此改动无需数据库迁移，未更改成员密码、账号权限或照片记录。
