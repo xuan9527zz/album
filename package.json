@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "test:login": "node scripts/test-login-network.mjs",
     "build:api": "wrangler deploy --dry-run --config apps/api/wrangler.toml",
     "dev:api": "wrangler dev --config apps/api/wrangler.toml",
     "deploy:api": "wrangler deploy --config apps/api/wrangler.toml",

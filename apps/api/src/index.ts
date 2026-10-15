@@ -9,6 +9,7 @@ import { R2Store } from "./storage";
 import { GitHubMusicStore } from "./music-store";
 import { cleanupMusic } from "./music-handler";
 import { healthResponse, relayAuth } from "./auth-relay";
+import { relayMedia } from "./media-relay";
 export interface Env {
   SUPABASE_URL: string;
   SUPABASE_PUBLISHABLE_KEY: string;
@@ -114,6 +115,8 @@ export default {
       );
     const authResponse = await relayAuth(request, env);
     if (authResponse) return authResponse;
+    const mediaResponse = await relayMedia(request, env);
+    if (mediaResponse) return mediaResponse;
     return createHandler(productionDependencies(env, ctx))(request);
   },
   async scheduled(

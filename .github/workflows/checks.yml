@@ -23,6 +23,7 @@ jobs:
       - run: npm run build:api
       - run: npm run check:private
       - run: npx playwright install --with-deps chromium webkit
+      - run: npm run test:login
       - run: npm run test:e2e
         env:
           TEST_HEIC: "true"

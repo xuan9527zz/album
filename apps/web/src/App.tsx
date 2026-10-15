@@ -56,6 +56,7 @@ const StoryArea = lazy(() =>
   import("./StoryStudio").then(({ StoryArea }) => ({ default: StoryArea })),
 );
 const HostedMusicTrial = lazy(() => import("./HostedMusicTrial"));
+const ConnectionCheck = lazy(() => import("./ConnectionCheck"));
 const PublicStoryReader = lazy(() =>
   import("./StoryStudio").then(({ PublicStoryReader }) => ({ default: PublicStoryReader })),
 );
@@ -191,6 +192,7 @@ function Login({ onLocal }: { onLocal: (id: string) => void }) {
                 {error}
               </p>
             )}
+            {/连接|超时|服务暂时/.test(error) && <a className="login-connection-link" href="#/connection-check">检查登录连接</a>}
             <button className="primary full" disabled={busy}>
               {busy ? "正在登录…" : "进入我的相册"}
               <ArrowUpRight size={18} />
@@ -372,7 +374,9 @@ export default function App() {
       {localDemo && (
         <div className="demo-banner">本地演示 · 合成图片 · 未连接云服务</div>
       )}
-      {entryRoute === "/music-trial" ? (
+      {entryRoute === "/connection-check" ? (
+        <Suspense fallback={<div className="boot">正在打开连接检查…</div>}><ConnectionCheck /></Suspense>
+      ) : entryRoute === "/music-trial" ? (
         <Suspense fallback={<div className="boot">正在打开试播影集…</div>}><HostedMusicTrial /></Suspense>
       ) : publicRoute ? (
         <Suspense fallback={<div className="boot">正在打开影集…</div>}><PublicStoryReader key={publicRoute[1]} token={publicRoute[1]} /></Suspense>

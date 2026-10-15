@@ -1,0 +1,103 @@
+.connection-page {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 32px 22px calc(32px + env(safe-area-inset-bottom));
+  min-height: 100dvh;
+}
+.connection-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  margin: 8px 0 24px;
+  color: var(--accent);
+}
+.connection-panel {
+  background: #fffefa;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  padding: 28px;
+  box-shadow: 0 12px 36px #263c3608;
+}
+.connection-panel h1 {
+  font-size: 28px;
+  margin: 16px 0 10px;
+}
+.connection-panel > p {
+  font-size: 14px;
+  line-height: 1.7;
+  color: #6b7972;
+}
+.connection-panel ul {
+  list-style: none;
+  padding: 0;
+  margin: 24px 0;
+}
+.connection-panel li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 17px 0;
+  border-bottom: 1px solid var(--line);
+}
+.connection-panel li div {
+  display: grid;
+  gap: 7px;
+}
+.connection-panel li strong {
+  font-size: 15px;
+}
+.connection-panel li span {
+  font-size: 13px;
+  color: #7b867f;
+}
+.connection-panel li[data-state="error"] > svg {
+  color: #a85843;
+}
+.connection-panel li[data-state="ok"] > svg {
+  color: var(--accent);
+}
+.connection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 22px 0;
+}
+.connection-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  border: 1px solid #ccd7ce;
+  font-size: 14px;
+  min-height: 44px;
+}
+.connection-panel textarea {
+  display: block;
+  width: 100%;
+  resize: vertical;
+  min-height: 128px;
+  max-height: 220px;
+  background: #f3f5ee;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 13px;
+  font:
+    12px/1.7 ui-monospace,
+    monospace;
+  color: #4e6359;
+}
+@media (max-width: 420px) {
+  .connection-panel {
+    padding: 22px;
+  }
+  .connection-page {
+    padding: 20px 18px;
+  }
+  .connection-actions button {
+    flex: 1;
+  }
+}

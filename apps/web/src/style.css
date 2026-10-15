@@ -1846,3 +1846,11 @@ progress::-moz-progress-bar {
   .bottom-nav { padding-left: 6px; padding-right: 6px; }
   .bottom-nav a { flex: 1; min-width: 0; }
 }
+.login-connection-link {
+  display: inline-flex;
+  color: var(--accent);
+  font-size: 14px;
+  margin: 0 0 16px;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}

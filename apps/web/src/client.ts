@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { ConnectionTransport } from "./connection-transport";
 export const localDemo =
   import.meta.env.DEV && import.meta.env.VITE_LOCAL_DEMO === "true";
 export const inviteMarker = "album-invite-pending";
@@ -10,10 +11,17 @@ if (
 )
   sessionStorage.setItem(inviteMarker, "1");
 const config = import.meta.env;
+export const connection =
+  !localDemo && config.VITE_API_BASE_URL && config.VITE_SUPABASE_URL
+    ? new ConnectionTransport(
+        config.VITE_API_BASE_URL.replace(/\/$/, ""),
+        new URL(config.VITE_SUPABASE_URL).origin,
+      )
+    : null;
 export const apiBase = () =>
   localDemo
     ? "http://127.0.0.1:8788"
-    : config.VITE_API_BASE_URL.replace(/\/$/, "");
+    : connection?.base() || config.VITE_API_BASE_URL.replace(/\/$/, "");
 export const configured =
   localDemo ||
   !!(
@@ -27,6 +35,7 @@ export const auth =
     ? createClient(
         config.VITE_SUPABASE_URL,
         config.VITE_SUPABASE_PUBLISHABLE_KEY,
+        connection ? { global: { fetch: connection.authFetch } } : undefined,
       )
     : null;
 export class RequestError extends Error {
@@ -41,21 +50,21 @@ export async function publicRequest<T>(
   path: string,
   signal?: AbortSignal,
 ): Promise<T> {
-  const r = await fetch(
-    `${localDemo ? "http://127.0.0.1:8788" : config.VITE_API_BASE_URL.replace(/\/$/, "")}${path}`,
-    {
-      cache: "no-store",
-      referrerPolicy: "no-referrer",
-      signal,
-    },
-  );
+  const init: RequestInit = {
+    cache: "no-store",
+    referrerPolicy: "no-referrer",
+    signal,
+  };
+  const r = connection
+    ? await connection.api(path, init)
+    : await fetch(`${apiBase()}${path}`, init);
   const result = await r.json();
   if (!r.ok)
     throw new RequestError(
       result.error?.message || "观看链接不可用或已关闭",
       r.status,
     );
-  return result;
+  return connection ? connection.mediaIn(result) : result;
 }
 export class Client {
   readonly controller = new AbortController();
@@ -73,27 +82,28 @@ export class Client {
     key?: string,
     signal?: AbortSignal,
   ): Promise<T> {
-    const r = await fetch(
-      `${localDemo ? "http://127.0.0.1:8788" : config.VITE_API_BASE_URL.replace(/\/$/, "")}${path}`,
-      {
-        method,
-        headers: {
-          Authorization: `Bearer ${await this.token()}`,
-          ...(body ? { "Content-Type": "application/json" } : {}),
-          ...(key ? { "Idempotency-Key": key } : {}),
-        },
-        body: body ? JSON.stringify(body) : undefined,
-        signal: signal || this.controller.signal,
-        cache: "no-store",
+    const token = await this.token();
+    const init: RequestInit = {
+      method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(body ? { "Content-Type": "application/json" } : {}),
+        ...(key ? { "Idempotency-Key": key } : {}),
       },
-    );
+      body: body ? JSON.stringify(body) : undefined,
+      signal: signal || this.controller.signal,
+      cache: "no-store",
+    };
+    const r = connection
+      ? await connection.api(path, init)
+      : await fetch(`${apiBase()}${path}`, init);
     const data = await r.json();
     if (!r.ok)
       throw new RequestError(
         data.error?.message || "连接失败，请稍后重试",
         r.status,
       );
-    return data;
+    return connection ? connection.mediaIn(data) : data;
   }
   async uploadMusic(
     file: File,
